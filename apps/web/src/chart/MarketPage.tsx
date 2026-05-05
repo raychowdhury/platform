@@ -68,9 +68,11 @@ export default function MarketPage() {
   const [notifTick, setNotifTick] = useState(0);
   const [role, setRole] = useState<string>("user");
   const [drawings, setDrawings] = useState<Drawing[]>([]);
-  // drawMode = "off" | "price_line" | "trend_line"
-  // trend_line takes two clicks; first click is buffered in pendingAnchorRef.
-  const [drawMode, setDrawMode] = useState<"off" | "price_line" | "trend_line">("off");
+  // drawMode = "off" | "price_line" | "trend_line" | "fib_retracement"
+  // trend_line / fib take two clicks; first click is buffered in pendingAnchorRef.
+  const [drawMode, setDrawMode] = useState<
+    "off" | "price_line" | "trend_line" | "fib_retracement"
+  >("off");
   const pendingAnchorRef = useRef<{ time: number; price: number } | null>(null);
   const marksRef = useRef<Map<string, number>>(new Map());
   const [marks, setMarks] = useState<Map<string, number>>(new Map());
@@ -208,16 +210,18 @@ export default function MarketPage() {
     handle.setPriceLines(priceLines.map((d) => ({
       id: d.id, price: d.price as number, color: d.color, label: d.label,
     })));
-    const trendLines = drawings.filter((d) =>
-      d.type === "trend_line" && d.time1 && d.time2 && d.price != null && d.price2 != null);
-    handle.setTrendLines(trendLines.map((d) => ({
+    const twoAnchor = (typ: "trend_line" | "fib_retracement") => drawings.filter((d) =>
+      d.type === typ && d.time1 && d.time2 && d.price != null && d.price2 != null);
+    const toSpec = (d: Drawing) => ({
       id: d.id,
       time1: Math.floor(new Date(d.time1 as string).getTime() / 1000),
       time2: Math.floor(new Date(d.time2 as string).getTime() / 1000),
       price1: d.price as number,
       price2: d.price2 as number,
       color: d.color,
-    })));
+    });
+    handle.setTrendLines(twoAnchor("trend_line").map(toSpec));
+    handle.setFibs(twoAnchor("fib_retracement").map(toSpec));
   }, [drawings]);
 
   // click handler — only acts in draw mode. price_line = single click;
@@ -235,9 +239,9 @@ export default function MarketPage() {
       }
       return;
     }
-    // trend_line: anchor a click to the bar nearest the latest tick time.
-    // Without a separate "time under cursor" hook we use the most recent bar
-    // as time1 / time2 — simple, ties the line to real bars.
+    // trend_line / fib_retracement: anchor a click to the bar nearest the
+    // latest tick time. Without a separate "time under cursor" hook we use
+    // the most recent bar as time1 / time2 — simple, ties the line to real bars.
     const latestBar = barsRef.current[barsRef.current.length - 1];
     if (!latestBar) return;
     if (!pendingAnchorRef.current) {
@@ -248,7 +252,7 @@ export default function MarketPage() {
     pendingAnchorRef.current = null;
     try {
       const d = await api.createDrawing({
-        symbol, type: "trend_line",
+        symbol, type: drawMode,
         price: a.price, price2: price,
         time1: new Date(a.time * 1000).toISOString(),
         time2: new Date(latestBar.time * 1000).toISOString(),
@@ -426,6 +430,18 @@ export default function MarketPage() {
             ? (pendingAnchorRef.current ? "click point 2…" : "click point 1…")
             : "+ trend"}
         </button>
+        <button
+          onClick={() => {
+            pendingAnchorRef.current = null;
+            setDrawMode((d) => d === "fib_retracement" ? "off" : "fib_retracement");
+          }}
+          style={{ opacity: drawMode === "fib_retracement" ? 1 : 0.55 }}
+          title="click two anchors to draw a Fibonacci retracement"
+        >
+          {drawMode === "fib_retracement"
+            ? (pendingAnchorRef.current ? "click point 2…" : "click point 1…")
+            : "+ fib"}
+        </button>
         <span className="account-summary">
           {account != null ? (
             <>
@@ -455,17 +471,19 @@ export default function MarketPage() {
             <div className="panel-title">Lines — {symbol}</div>
             <table className="oms-table">
               <tbody>
-                {drawings.map((d) => (
-                  <tr key={d.id}>
-                    <td>
-                      <span style={{ color: d.color }}>{d.type === "trend_line" ? "╱" : "━"}</span>{" "}
-                      {d.type === "trend_line"
-                        ? `${(d.price ?? 0).toFixed(2)} → ${(d.price2 ?? 0).toFixed(2)}`
-                        : (d.price ?? 0).toFixed(2)}
-                    </td>
-                    <td><button className="link" onClick={() => removeDrawing(d.id)}>×</button></td>
-                  </tr>
-                ))}
+                {drawings.map((d) => {
+                  const glyph = d.type === "trend_line" ? "╱"
+                    : d.type === "fib_retracement" ? "≡" : "━";
+                  const desc = (d.type === "trend_line" || d.type === "fib_retracement")
+                    ? `${(d.price ?? 0).toFixed(2)} → ${(d.price2 ?? 0).toFixed(2)}`
+                    : (d.price ?? 0).toFixed(2);
+                  return (
+                    <tr key={d.id}>
+                      <td><span style={{ color: d.color }}>{glyph}</span> {desc}</td>
+                      <td><button className="link" onClick={() => removeDrawing(d.id)}>×</button></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

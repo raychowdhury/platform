@@ -32,11 +32,11 @@ export interface Drawing {
   id: string;
   user_id: string;
   symbol: string;
-  type: "price_line" | "trend_line";
-  price?: number;        // price_line; trend_line anchor1
-  price2?: number;       // trend_line anchor2
-  time1?: string;        // trend_line anchor1 (ISO ts)
-  time2?: string;        // trend_line anchor2 (ISO ts)
+  type: "price_line" | "trend_line" | "fib_retracement";
+  price?: number;        // price_line; trend_line/fib anchor1
+  price2?: number;       // trend_line/fib anchor2
+  time1?: string;        // trend_line/fib anchor1 (ISO ts)
+  time2?: string;        // trend_line/fib anchor2 (ISO ts)
   color: string;
   label?: string;
   created_at: string;
@@ -44,7 +44,7 @@ export interface Drawing {
 
 export interface DrawingCreateRequest {
   symbol: string;
-  type: "price_line" | "trend_line";
+  type: "price_line" | "trend_line" | "fib_retracement";
   price?: number;
   price2?: number;
   time1?: string;

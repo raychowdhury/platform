@@ -18,6 +18,7 @@ import {
 } from "lightweight-charts";
 import type { LinePoint, MACDSeries } from "./indicators";
 import { TrendLinePrimitive, type TrendLineSpec } from "./trendline";
+import { FibPrimitive, type FibSpec } from "./fib";
 
 export interface CandleBar {
   time: number; // unix seconds (UTC)
@@ -45,6 +46,7 @@ export interface ChartHandle {
   setOscillator: (key: OscillatorKey | null, payload: LinePoint[] | MACDSeries | null) => void;
   setPriceLines: (lines: PriceLineSpec[]) => void;
   setTrendLines: (lines: TrendLineSpec[]) => void;
+  setFibs: (fibs: FibSpec[]) => void;
   // priceFromY converts a pixel-y on the candle pane to a price using the
   // candlestick series' price scale. Returns null if outside the visible range.
   priceFromY: (y: number) => number | null;
@@ -142,6 +144,9 @@ export default function Chart({ onReady, onClick, onCrosshairTime }: Props) {
 
     // trendlines: id → primitive instance attached to candles
     const trendLines = new Map<string, TrendLinePrimitive>();
+
+    // fib retracements: id → primitive
+    const fibs = new Map<string, FibPrimitive>();
 
     // click → main-pane price
     main.subscribeClick((p) => {
@@ -259,6 +264,25 @@ export default function Chart({ onReady, onClick, onCrosshairTime }: Props) {
             value: p.value,
             color: p.value >= 0 ? "#26a69a88" : "#ef535088",
           })));
+        }
+      },
+      setFibs: (specs) => {
+        const wantIDs = new Set(specs.map((f) => f.id));
+        for (const [id, prim] of fibs) {
+          if (!wantIDs.has(id)) {
+            candles.detachPrimitive(prim);
+            fibs.delete(id);
+          }
+        }
+        for (const f of specs) {
+          const existing = fibs.get(f.id);
+          if (existing) {
+            existing.spec = f;
+            continue;
+          }
+          const prim = new FibPrimitive(f, main, candles);
+          candles.attachPrimitive(prim);
+          fibs.set(f.id, prim);
         }
       },
       setTrendLines: (lines) => {

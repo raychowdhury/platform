@@ -34,10 +34,10 @@ type Drawing struct {
 
 var (
 	ErrNotFound      = errors.New("drawing not found")
-	ErrInvalidType   = errors.New("type must be 'price_line' or 'trend_line'")
+	ErrInvalidType   = errors.New("type must be 'price_line', 'trend_line', or 'fib_retracement'")
 	ErrInvalidPrice  = errors.New("price must be > 0")
 	ErrInvalidSymbol = errors.New("symbol required")
-	ErrInvalidAnchor = errors.New("trend_line requires price+time1 and price2+time2")
+	ErrInvalidAnchor = errors.New("trend_line/fib_retracement require price+time1 and price2+time2")
 )
 
 // ---------- Repo ----------
@@ -170,7 +170,7 @@ func (h *Handlers) Create(uid uidProvider) http.HandlerFunc {
 			req.Price2 = nil
 			req.Time1 = nil
 			req.Time2 = nil
-		case "trend_line":
+		case "trend_line", "fib_retracement":
 			if req.Price == nil || req.Price2 == nil || req.Time1 == nil || req.Time2 == nil ||
 				*req.Price <= 0 || *req.Price2 <= 0 {
 				httputil.WriteError(w, http.StatusBadRequest, ErrInvalidAnchor.Error())
