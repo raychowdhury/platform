@@ -11,13 +11,12 @@ import {
 } from "react-native";
 import { api } from "./src/api";
 
-type Screen = "login" | "home";
+type Screen = "boot" | "login" | "home";
 
 interface Account { balance: number; locked: number; available: number }
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>("login");
-  const [token, setToken] = useState<string | null>(null);
+  const [screen, setScreen] = useState<Screen>("boot");
   const [base, setBase] = useState(api.base);
   const [email, setEmail] = useState("alice@example.com");
   const [password, setPassword] = useState("correcthorsebattery");
@@ -26,13 +25,30 @@ export default function App() {
   const [account, setAccount] = useState<Account | null>(null);
   const [symbols, setSymbols] = useState<string[]>([]);
 
+  // Boot: hydrate stored auth + verify it still works against /v1/account.
+  // If account fails the api client will have already cleared the bad pair.
+  useEffect(() => {
+    (async () => {
+      const hydrated = await api.hydrate();
+      if (hydrated) {
+        try {
+          const a = await api.account();
+          setAccount(a);
+          setBase(api.base);
+          setScreen("home");
+          return;
+        } catch { /* fall through to login */ }
+      }
+      setScreen("login");
+    })();
+  }, []);
+
   useEffect(() => { api.setBase(base); }, [base]);
 
   const onLogin = async () => {
     setBusy(true); setErr(null);
     try {
-      const t = await api.login(email, password);
-      setToken(t.access);
+      await api.login(email, password);
       setScreen("home");
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -42,9 +58,9 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (screen !== "home" || !token) return;
+    if (screen !== "home") return;
     let cancel = false;
-    Promise.all([api.account(token), api.symbols()])
+    Promise.all([api.account(), api.symbols()])
       .then(([a, s]) => {
         if (cancel) return;
         setAccount(a);
@@ -52,7 +68,16 @@ export default function App() {
       })
       .catch((e) => !cancel && setErr(String(e)));
     return () => { cancel = true; };
-  }, [screen, token]);
+  }, [screen]);
+
+  if (screen === "boot") {
+    return (
+      <View style={[styles.root, styles.center]}>
+        <StatusBar style="light" />
+        <ActivityIndicator color="#d1d4dc" />
+      </View>
+    );
+  }
 
   if (screen === "login") {
     return (
@@ -60,29 +85,19 @@ export default function App() {
         <StatusBar style="light" />
         <Text style={styles.title}>Platform</Text>
         <TextInput
-          value={base}
-          onChangeText={setBase}
-          autoCapitalize="none"
-          placeholder="API base URL"
-          placeholderTextColor="#666"
-          style={styles.input}
+          value={base} onChangeText={setBase}
+          autoCapitalize="none" placeholder="API base URL"
+          placeholderTextColor="#666" style={styles.input}
         />
         <TextInput
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          placeholder="email"
-          placeholderTextColor="#666"
-          style={styles.input}
+          value={email} onChangeText={setEmail}
+          autoCapitalize="none" keyboardType="email-address"
+          placeholder="email" placeholderTextColor="#666" style={styles.input}
         />
         <TextInput
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          placeholder="password"
-          placeholderTextColor="#666"
-          style={styles.input}
+          value={password} onChangeText={setPassword}
+          secureTextEntry placeholder="password"
+          placeholderTextColor="#666" style={styles.input}
         />
         <Pressable onPress={onLogin} disabled={busy} style={styles.button}>
           {busy ? <ActivityIndicator color="#0b0e14" /> : <Text style={styles.buttonText}>log in</Text>}
@@ -110,7 +125,7 @@ export default function App() {
         renderItem={({ item }) => <Text style={styles.symbol}>{item}</Text>}
         style={styles.list}
       />
-      <Pressable onPress={() => { setToken(null); setScreen("login"); }} style={styles.linkBtn}>
+      <Pressable onPress={async () => { await api.logout(); setAccount(null); setScreen("login"); }} style={styles.linkBtn}>
         <Text style={styles.linkText}>log out</Text>
       </Pressable>
     </View>
@@ -132,6 +147,7 @@ function fmt(n: number) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#0b0e14", padding: 24, paddingTop: 60 },
+  center: { alignItems: "center", justifyContent: "center" },
   title: { color: "#d1d4dc", fontSize: 28, fontWeight: "700", marginBottom: 24 },
   section: { color: "#d1d4dc", fontSize: 16, fontWeight: "600", marginTop: 24, marginBottom: 8 },
   input: {
