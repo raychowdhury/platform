@@ -19,6 +19,7 @@ import (
 	"github.com/platform/api/internal/mailer"
 	"github.com/platform/api/internal/notifications"
 	"github.com/platform/api/internal/oms"
+	"github.com/platform/api/internal/push"
 	"github.com/platform/api/internal/server"
 	"github.com/platform/api/internal/storage"
 )
@@ -94,8 +95,11 @@ func main() {
 	notifRepo := notifications.NewRepo(pg.Pool)
 	authRepo := auth.NewRepo(pg.Pool)
 	mail := mailer.New(log, cfg.SMTPAddr, cfg.SMTPUsername, cfg.SMTPPassword, cfg.MailFrom)
+	pushRepo := push.NewRepo(pg.Pool)
+	pushSender := push.NewSender(pushRepo, cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDSubject, log)
 	alertsEngine := alerts.NewEngine(pg.Pool, rdb, alertsRepo, notifRepo, log).
-		WithEmail(&alertMailerAdapter{m: mail}, &alertEmailAdapter{r: authRepo})
+		WithEmail(&alertMailerAdapter{m: mail}, &alertEmailAdapter{r: authRepo}).
+		WithPush(pushSender)
 	go func() {
 		if err := alertsEngine.Run(rootCtx); err != nil && !errors.Is(err, context.Canceled) {
 			log.Error("alerts engine", "err", err)

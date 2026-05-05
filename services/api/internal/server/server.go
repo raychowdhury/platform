@@ -29,6 +29,7 @@ import (
 	mw "github.com/platform/api/internal/middleware"
 	"github.com/platform/api/internal/notifications"
 	"github.com/platform/api/internal/oms"
+	"github.com/platform/api/internal/push"
 )
 
 type Deps struct {
@@ -136,6 +137,15 @@ func New(d Deps) http.Handler {
 		r.Get("/api-keys", apiKeysH.List(uidFromCtx))
 		r.Post("/api-keys", apiKeysH.Create(uidFromCtx))
 		r.Delete("/api-keys/{id}", apiKeysH.Revoke(uidFromCtx))
+
+		// Web Push: VAPID public key is used by the SW client to subscribe.
+		// Subscribe is idempotent on endpoint; list/delete are per-user.
+		pushRepo := push.NewRepo(d.DB)
+		pushH := push.NewHandlers(pushRepo, d.Cfg.VAPIDPublicKey)
+		r.Get("/push/vapid", pushH.VAPIDPublicKey)
+		r.Post("/push/subscribe", pushH.Subscribe(uidFromCtx))
+		r.Get("/push/subscriptions", pushH.ListMine(uidFromCtx))
+		r.Delete("/push/subscriptions/{id}", pushH.Delete(uidFromCtx))
 	})
 
 	billingRepo := billing.NewRepo(d.DB)

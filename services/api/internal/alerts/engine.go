@@ -38,6 +38,12 @@ type MailMessage struct {
 	Body    string
 }
 
+// PushSink fan-outs a serialized payload to all of a user's push
+// subscriptions. Implementations no-op when push is unconfigured.
+type PushSink interface {
+	SendToUser(ctx context.Context, uid uuid.UUID, payload []byte)
+}
+
 // Engine watches Redis ticks:* and fires alerts whose threshold the price crosses.
 // Same shape as oms.Engine: in-memory active-symbol set keeps fan-out cheap;
 // the actual flip from active→triggered is atomic via UPDATE ... WHERE status='active'.
@@ -48,6 +54,7 @@ type Engine struct {
 	notif  NotificationSink
 	mailer Mailer
 	emails EmailLookup
+	push   PushSink
 	log    *slog.Logger
 
 	mu     sync.Mutex
@@ -63,6 +70,12 @@ func NewEngine(db *pgxpool.Pool, rdb *redis.Client, repo *Repo, notif Notificati
 func (e *Engine) WithEmail(m Mailer, l EmailLookup) *Engine {
 	e.mailer = m
 	e.emails = l
+	return e
+}
+
+// WithPush wires alert-fire web push delivery. Nil sink keeps the path off.
+func (e *Engine) WithPush(p PushSink) *Engine {
+	e.push = p
 	return e
 }
 
@@ -186,6 +199,12 @@ func (e *Engine) evalSymbol(ctx context.Context, t tickMsg) error {
 				e.log.Warn("notif insert", "alert", fired.ID, "err", err)
 			}
 			e.maybeEmail(ctx, fired.UserID, title, body)
+			if e.push != nil {
+				pushPayload, _ := json.Marshal(map[string]any{
+					"type": "alert", "title": title, "body": body, "alert_id": fired.ID,
+				})
+				e.push.SendToUser(ctx, fired.UserID, pushPayload)
+			}
 		}
 	}
 	return nil

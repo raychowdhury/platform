@@ -35,6 +35,9 @@ type Config struct {
 	KEKURL          string // when set, fetch the 32-byte KEK over HTTP (sidecar / Vault / KMS proxy) instead of TOTP_KEK env
 	KEKHeaderName   string // optional header name for KEK fetch auth
 	KEKHeaderValue  string // optional header value
+	VAPIDPublicKey  string
+	VAPIDPrivateKey string
+	VAPIDSubject    string // mailto:... — required by Web Push spec
 }
 
 func Load() (*Config, error) {
@@ -64,6 +67,9 @@ func Load() (*Config, error) {
 		KEKURL:            envStr("KEK_URL", ""),
 		KEKHeaderName:     envStr("KEK_HEADER_NAME", ""),
 		KEKHeaderValue:    envStr("KEK_HEADER_VALUE", ""),
+		VAPIDPublicKey:    envStr("VAPID_PUBLIC_KEY", ""),
+		VAPIDPrivateKey:   envStr("VAPID_PRIVATE_KEY", ""),
+		VAPIDSubject:      envStr("VAPID_SUBJECT", "mailto:admin@platform.local"),
 	}
 	if len(c.JWTSecret) < 32 {
 		return nil, fmt.Errorf("JWT_SECRET must be set and >=32 bytes")

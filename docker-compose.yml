@@ -60,6 +60,9 @@ services:
       KEK_URL: "${KEK_URL:-}"
       KEK_HEADER_NAME: "${KEK_HEADER_NAME:-}"
       KEK_HEADER_VALUE: "${KEK_HEADER_VALUE:-}"
+      VAPID_PUBLIC_KEY: "${VAPID_PUBLIC_KEY:-}"
+      VAPID_PRIVATE_KEY: "${VAPID_PRIVATE_KEY:-}"
+      VAPID_SUBJECT: "${VAPID_SUBJECT:-mailto:admin@platform.local}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
