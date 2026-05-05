@@ -10,6 +10,7 @@
 package crypter
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -40,6 +41,20 @@ func New(key []byte) (*Crypter, error) {
 		return nil, err
 	}
 	return &Crypter{aead: aead}, nil
+}
+
+// FromProvider resolves a KEK from any KEKProvider (env-static, HTTP, future
+// AWS KMS / Vault implementations) and constructs a crypter. Provider may be
+// nil → returns nil crypter (encryption disabled).
+func FromProvider(ctx context.Context, p KEKProvider) (*Crypter, error) {
+	if p == nil {
+		return nil, nil
+	}
+	k, err := p.Key(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return New(k)
 }
 
 func (c *Crypter) Encrypt(plain string) (string, error) {

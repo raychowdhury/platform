@@ -32,6 +32,9 @@ type Config struct {
 	MailFrom        string
 	WebBaseURL      string // used to build action links inside emails
 	TOTPKEK         []byte // 32-byte AES-256-GCM key for TOTP seed envelope; empty = plaintext (dev)
+	KEKURL          string // when set, fetch the 32-byte KEK over HTTP (sidecar / Vault / KMS proxy) instead of TOTP_KEK env
+	KEKHeaderName   string // optional header name for KEK fetch auth
+	KEKHeaderValue  string // optional header value
 }
 
 func Load() (*Config, error) {
@@ -58,6 +61,9 @@ func Load() (*Config, error) {
 		MailFrom:          envStr("MAIL_FROM", "no-reply@platform.local"),
 		WebBaseURL:        envStr("WEB_BASE_URL", "http://localhost:5174"),
 		TOTPKEK:           decodeKEK(envStr("TOTP_KEK", "")),
+		KEKURL:            envStr("KEK_URL", ""),
+		KEKHeaderName:     envStr("KEK_HEADER_NAME", ""),
+		KEKHeaderValue:    envStr("KEK_HEADER_VALUE", ""),
 	}
 	if len(c.JWTSecret) < 32 {
 		return nil, fmt.Errorf("JWT_SECRET must be set and >=32 bytes")

@@ -57,6 +57,11 @@ services:
       MAIL_FROM: "${MAIL_FROM:-no-reply@platform.local}"
       WEB_BASE_URL: "${WEB_BASE_URL:-http://localhost:5174}"
       TOTP_KEK: "${TOTP_KEK:-}"
+      KEK_URL: "${KEK_URL:-}"
+      KEK_HEADER_NAME: "${KEK_HEADER_NAME:-}"
+      KEK_HEADER_VALUE: "${KEK_HEADER_VALUE:-}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${API_PORT:-8080}:8080"
 

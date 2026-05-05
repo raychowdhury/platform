@@ -78,10 +78,10 @@ func New(d Deps) http.Handler {
 	})
 
 	auditor := audit.NewRecorder(d.DB, d.Log)
-	cr, crErr := crypter.New(d.Cfg.TOTPKEK)
+	cr, crErr := crypter.FromProvider(context.Background(), kekProvider(d.Cfg))
 	if crErr != nil {
 		// Surface but don't crash the boot path; auth.Repo treats nil crypter as
-		// "no encryption", which matches the dev default (TOTP_KEK unset).
+		// "no encryption", which matches the dev default (no KEK source).
 		d.Log.Error("totp crypter init failed; falling back to plaintext", "err", crErr)
 	}
 	repo := auth.NewRepo(d.DB).WithCrypter(cr)
@@ -260,6 +260,23 @@ func New(d Deps) http.Handler {
 	})
 
 	return r
+}
+
+// kekProvider chooses a KEKProvider implementation from config: HTTP fetch
+// when KEK_URL is set (sidecar / Vault / KMS proxy pattern), env-static when
+// TOTP_KEK is set, otherwise nil (encryption disabled, dev path).
+func kekProvider(cfg *config.Config) crypter.KEKProvider {
+	if cfg.KEKURL != "" {
+		h := http.Header{}
+		if cfg.KEKHeaderName != "" {
+			h.Set(cfg.KEKHeaderName, cfg.KEKHeaderValue)
+		}
+		return &crypter.HTTPProvider{URL: cfg.KEKURL, Header: h}
+	}
+	if len(cfg.TOTPKEK) > 0 {
+		return &crypter.StaticProvider{K: cfg.TOTPKEK}
+	}
+	return nil
 }
 
 // authMailerAdapter bridges mailer.Mailer to auth.Mailer; the auth package
