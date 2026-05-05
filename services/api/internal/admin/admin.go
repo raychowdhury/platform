@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shopspring/decimal"
 
 	"github.com/platform/api/internal/httputil"
 )
@@ -28,15 +29,15 @@ var (
 )
 
 type UserSummary struct {
-	ID              uuid.UUID  `json:"id"`
-	Email           string     `json:"email"`
-	Status          string     `json:"status"`
-	Role            string     `json:"role"`
-	EmailVerifiedAt *time.Time `json:"email_verified_at"`
-	LastLoginAt     *time.Time `json:"last_login_at"`
-	CreatedAt       time.Time  `json:"created_at"`
-	Balance         float64    `json:"balance"`
-	Locked          float64    `json:"locked"`
+	ID              uuid.UUID       `json:"id"`
+	Email           string          `json:"email"`
+	Status          string          `json:"status"`
+	Role            string          `json:"role"`
+	EmailVerifiedAt *time.Time      `json:"email_verified_at"`
+	LastLoginAt     *time.Time      `json:"last_login_at"`
+	CreatedAt       time.Time       `json:"created_at"`
+	Balance         decimal.Decimal `json:"balance"`
+	Locked          decimal.Decimal `json:"locked"`
 }
 
 type AuditRow struct {
@@ -63,7 +64,7 @@ func (r *Repo) ListUsers(ctx context.Context, q string, limit int) ([]UserSummar
 	q = strings.ToLower(strings.TrimSpace(q))
 	rows, err := r.db.Query(ctx, `
 		SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.last_login_at, u.created_at,
-		       COALESCE(a.balance, 0)::float8, COALESCE(a.locked, 0)::float8
+		       COALESCE(a.balance, 0)::text, COALESCE(a.locked, 0)::text
 		FROM users u
 		LEFT JOIN accounts a ON a.user_id = u.id
 		WHERE $1 = '' OR u.email LIKE '%' || $1 || '%'
@@ -77,8 +78,15 @@ func (r *Repo) ListUsers(ctx context.Context, q string, limit int) ([]UserSummar
 	var out []UserSummary
 	for rows.Next() {
 		var u UserSummary
+		var bal, lck string
 		if err := rows.Scan(&u.ID, &u.Email, &u.Status, &u.Role, &u.EmailVerifiedAt, &u.LastLoginAt,
-			&u.CreatedAt, &u.Balance, &u.Locked); err != nil {
+			&u.CreatedAt, &bal, &lck); err != nil {
+			return nil, err
+		}
+		if u.Balance, err = decimal.NewFromString(bal); err != nil {
+			return nil, err
+		}
+		if u.Locked, err = decimal.NewFromString(lck); err != nil {
 			return nil, err
 		}
 		out = append(out, u)
@@ -88,18 +96,28 @@ func (r *Repo) ListUsers(ctx context.Context, q string, limit int) ([]UserSummar
 
 func (r *Repo) GetUser(ctx context.Context, id uuid.UUID) (*UserSummary, error) {
 	var u UserSummary
+	var bal, lck string
 	err := r.db.QueryRow(ctx, `
 		SELECT u.id, u.email, u.status, u.role, u.email_verified_at, u.last_login_at, u.created_at,
-		       COALESCE(a.balance, 0)::float8, COALESCE(a.locked, 0)::float8
+		       COALESCE(a.balance, 0)::text, COALESCE(a.locked, 0)::text
 		FROM users u
 		LEFT JOIN accounts a ON a.user_id = u.id
 		WHERE u.id = $1
 	`, id).Scan(&u.ID, &u.Email, &u.Status, &u.Role, &u.EmailVerifiedAt, &u.LastLoginAt,
-		&u.CreatedAt, &u.Balance, &u.Locked)
+		&u.CreatedAt, &bal, &lck)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrUserNotFound
 	}
-	return &u, err
+	if err != nil {
+		return nil, err
+	}
+	if u.Balance, err = decimal.NewFromString(bal); err != nil {
+		return nil, err
+	}
+	if u.Locked, err = decimal.NewFromString(lck); err != nil {
+		return nil, err
+	}
+	return &u, nil
 }
 
 func (r *Repo) SetStatus(ctx context.Context, id uuid.UUID, status string) error {
@@ -113,16 +131,19 @@ func (r *Repo) SetStatus(ctx context.Context, id uuid.UUID, status string) error
 	return nil
 }
 
-func (r *Repo) AdjustBalance(ctx context.Context, id uuid.UUID, delta float64) (float64, error) {
-	var newBal float64
+func (r *Repo) AdjustBalance(ctx context.Context, id uuid.UUID, delta decimal.Decimal) (decimal.Decimal, error) {
+	var newBalStr string
 	err := r.db.QueryRow(ctx, `
-		UPDATE accounts SET balance = balance + $1, updated_at = now()
-		WHERE user_id = $2 RETURNING balance::float8
-	`, delta, id).Scan(&newBal)
+		UPDATE accounts SET balance = balance + $1::numeric, updated_at = now()
+		WHERE user_id = $2 RETURNING balance::text
+	`, delta.String(), id).Scan(&newBalStr)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, ErrUserNotFound
+		return decimal.Zero, ErrUserNotFound
 	}
-	return newBal, err
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return decimal.NewFromString(newBalStr)
 }
 
 func (r *Repo) RecordAudit(ctx context.Context, actor uuid.UUID, target *uuid.UUID, action, ip, ua string, metadata []byte) error {
@@ -246,8 +267,8 @@ func (h *Handlers) setStatus(uid uidProvider, status, action string, invalidate 
 }
 
 type balanceReq struct {
-	Delta  float64 `json:"delta"`
-	Reason string  `json:"reason"`
+	Delta  decimal.Decimal `json:"delta"`
+	Reason string          `json:"reason"`
 }
 
 func (h *Handlers) AdjustBalance(uid uidProvider) http.HandlerFunc {
@@ -262,7 +283,7 @@ func (h *Handlers) AdjustBalance(uid uidProvider) http.HandlerFunc {
 			httputil.WriteError(w, http.StatusBadRequest, "invalid body")
 			return
 		}
-		if req.Delta == 0 {
+		if req.Delta.IsZero() {
 			httputil.WriteError(w, http.StatusBadRequest, ErrInvalidDelta.Error())
 			return
 		}
@@ -274,7 +295,7 @@ func (h *Handlers) AdjustBalance(uid uidProvider) http.HandlerFunc {
 		meta, _ := json.Marshal(map[string]any{"delta": req.Delta, "reason": req.Reason, "new_balance": newBal})
 		_ = h.repo.RecordAudit(r.Context(), uid(r), &target, "admin.balance_adjusted",
 			httputil.ClientIP(r), r.UserAgent(), meta)
-		httputil.WriteJSON(w, http.StatusOK, map[string]float64{"balance": newBal})
+		httputil.WriteJSON(w, http.StatusOK, map[string]decimal.Decimal{"balance": newBal})
 	}
 }
 
