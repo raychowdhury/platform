@@ -139,6 +139,17 @@ func (h *Handlers) ListPositions(uid uidProvider) http.HandlerFunc {
 	}
 }
 
+func (h *Handlers) PnL(uid uidProvider) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p, err := h.svc.PnL(r.Context(), uid(r))
+		if err != nil {
+			httputil.WriteError(w, statusFor(err), err.Error())
+			return
+		}
+		httputil.WriteJSON(w, http.StatusOK, p)
+	}
+}
+
 func (h *Handlers) GetAccount(uid uidProvider) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		a, err := h.svc.GetAccount(r.Context(), uid(r))

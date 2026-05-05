@@ -272,6 +272,34 @@ func (r *Repo) GetAccount(ctx context.Context, userID uuid.UUID) (*Account, erro
 	return a, nil
 }
 
+// RealizedPnLToday sums fee-adjusted realized PnL from sells closed in the
+// current UTC day. Buys don't realize PnL; sells produce (price-avg)*qty - fee
+// at fill time. We approximate same-day total as Σ(sell.proceeds - sell.qty *
+// position.avg_cost_at_fill) — but we don't snapshot avg_cost per fill, so
+// instead we recover the contribution by walking fills and approximating
+// avg_cost from the position-side trace. Cheaper for paper trading: use the
+// running realized_pnl on positions but only count *today's delta* via a
+// fills-side aggregate (price - first-fill-avg) * qty. Good enough for the
+// dashboard line; full attribution lives in the journal export.
+func (r *Repo) RealizedPnLToday(ctx context.Context, userID uuid.UUID) (decimal.Decimal, error) {
+	var s string
+	err := r.db.QueryRow(ctx, `
+		SELECT COALESCE(SUM(
+			CASE WHEN f.side = 'sell'
+				THEN (f.price - COALESCE(p.avg_cost, f.price)) * f.qty - f.fee
+				ELSE 0 END
+		), 0)::text
+		FROM fills f
+		LEFT JOIN positions p ON p.user_id = f.user_id AND p.symbol = f.symbol
+		WHERE f.user_id = $1
+		  AND f.created_at >= date_trunc('day', now() AT TIME ZONE 'UTC')
+	`, userID).Scan(&s)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return decimal.NewFromString(s)
+}
+
 func (r *Repo) ActiveSymbols(ctx context.Context) ([]string, error) {
 	rows, err := r.db.Query(ctx, `SELECT DISTINCT symbol FROM orders WHERE status = 'open'`)
 	if err != nil {

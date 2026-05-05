@@ -268,3 +268,68 @@ func (s *Service) ListPositions(ctx context.Context, userID uuid.UUID) ([]Positi
 func (s *Service) GetAccount(ctx context.Context, userID uuid.UUID) (*Account, error) {
 	return s.repo.GetAccount(ctx, userID)
 }
+
+// PnLSummary aggregates realized+unrealized PnL plus equity. Unrealized is
+// computed against the engine's last-tick mark per symbol; missing marks
+// fall back to avg_cost (i.e. zero-PnL contribution). Realized today is the
+// sum of fee-adjusted realized PnL whose fill timestamp is in the current
+// UTC day — cheap to compute from the fills table without a separate journal.
+type PnLSummary struct {
+	Balance         decimal.Decimal     `json:"balance"`
+	Available       decimal.Decimal     `json:"available"`
+	Equity          decimal.Decimal     `json:"equity"`
+	RealizedTotal   decimal.Decimal     `json:"realized_total"`
+	RealizedToday   decimal.Decimal     `json:"realized_today"`
+	UnrealizedTotal decimal.Decimal     `json:"unrealized_total"`
+	Positions       []PnLPositionDetail `json:"positions"`
+}
+
+type PnLPositionDetail struct {
+	Symbol     string          `json:"symbol"`
+	Qty        decimal.Decimal `json:"qty"`
+	AvgCost    decimal.Decimal `json:"avg_cost"`
+	Mark       decimal.Decimal `json:"mark"`
+	Unrealized decimal.Decimal `json:"unrealized"`
+}
+
+func (s *Service) PnL(ctx context.Context, userID uuid.UUID) (*PnLSummary, error) {
+	acc, err := s.repo.GetAccount(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	positions, err := s.repo.ListPositions(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	realizedToday, err := s.repo.RealizedPnLToday(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &PnLSummary{
+		Balance:   acc.Balance,
+		Available: acc.Available,
+	}
+	out.RealizedTotal = decimal.Zero
+	out.UnrealizedTotal = decimal.Zero
+	out.RealizedToday = realizedToday
+	mtm := decimal.Zero
+	for _, p := range positions {
+		out.RealizedTotal = out.RealizedTotal.Add(p.RealizedPnL)
+		mark := p.AvgCost
+		if s.engine != nil {
+			if v, ok := s.engine.LastPrice(p.Symbol); ok {
+				mark = decimal.NewFromFloat(v)
+			}
+		}
+		unr := mark.Sub(p.AvgCost).Mul(p.Qty)
+		out.UnrealizedTotal = out.UnrealizedTotal.Add(unr)
+		mtm = mtm.Add(mark.Mul(p.Qty))
+		out.Positions = append(out.Positions, PnLPositionDetail{
+			Symbol: p.Symbol, Qty: p.Qty, AvgCost: p.AvgCost,
+			Mark: mark, Unrealized: unr,
+		})
+	}
+	out.Equity = acc.Balance.Add(mtm)
+	return out, nil
+}

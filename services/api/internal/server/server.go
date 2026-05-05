@@ -177,6 +177,7 @@ func New(d Deps) http.Handler {
 		r.Get("/fills", omsH.ListFills(uidFromCtx))
 		r.Get("/positions", omsH.ListPositions(uidFromCtx))
 		r.Get("/account", omsH.GetAccount(uidFromCtx))
+		r.Get("/pnl", omsH.PnL(uidFromCtx))
 	})
 
 	// Billing
