@@ -132,3 +132,35 @@ ingest-up: ## bring up ingest
 .PHONY: ingest-logs
 ingest-logs: ## tail ingest logs
 	docker compose logs -f --tail=200 ingest
+
+# ----- Web -----
+
+WEB_DIR := apps/web
+
+.PHONY: web-install
+web-install: ## install web deps
+	pnpm install --filter @platform/web...
+
+.PHONY: web-dev
+web-dev: ## run web in dev mode (vite)
+	pnpm --filter @platform/web dev
+
+.PHONY: web-build
+web-build: ## build web for production
+	pnpm --filter @platform/web build
+
+.PHONY: web-typecheck
+web-typecheck: ## tsc no-emit
+	pnpm --filter @platform/web typecheck
+
+.PHONY: web-image
+web-image: ## build web docker image
+	docker compose build web
+
+.PHONY: web-up
+web-up: ## bring up web container
+	docker compose up -d --build web
+
+.PHONY: web-logs
+web-logs: ## tail web logs
+	docker compose logs -f --tail=200 web

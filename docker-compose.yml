@@ -74,6 +74,17 @@ services:
       INGEST_BATCH_SIZE: "${INGEST_BATCH_SIZE:-200}"
       INGEST_BATCH_INTERVAL: "${INGEST_BATCH_INTERVAL:-500ms}"
 
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: platform-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-5173}:80"
+
 volumes:
   timescale_data:
   redis_data:
