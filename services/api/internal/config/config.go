@@ -24,6 +24,11 @@ type Config struct {
 	StripeSecretKey string        // empty = Stripe disabled, dev upgrade enabled
 	BillingSuccessURL string
 	BillingCancelURL  string
+	SMTPAddr        string // empty = console mailer (logs to stdout)
+	SMTPUsername    string
+	SMTPPassword    string
+	MailFrom        string
+	WebBaseURL      string // used to build action links inside emails
 }
 
 func Load() (*Config, error) {
@@ -43,6 +48,11 @@ func Load() (*Config, error) {
 		StripeSecretKey:   envStr("STRIPE_SECRET_KEY", ""),
 		BillingSuccessURL: envStr("BILLING_SUCCESS_URL", "http://localhost:5174/?billing=success"),
 		BillingCancelURL:  envStr("BILLING_CANCEL_URL",  "http://localhost:5174/?billing=cancelled"),
+		SMTPAddr:          envStr("SMTP_ADDR", ""),
+		SMTPUsername:      envStr("SMTP_USERNAME", ""),
+		SMTPPassword:      envStr("SMTP_PASSWORD", ""),
+		MailFrom:          envStr("MAIL_FROM", "no-reply@platform.local"),
+		WebBaseURL:        envStr("WEB_BASE_URL", "http://localhost:5174"),
 	}
 	if len(c.JWTSecret) < 32 {
 		return nil, fmt.Errorf("JWT_SECRET must be set and >=32 bytes")

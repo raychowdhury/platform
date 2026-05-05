@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -24,23 +25,42 @@ type Auditor interface {
 	Record(ctx context.Context, userID *uuid.UUID, event, ip, ua string, metadata map[string]any)
 }
 
+// Mailer is the subset of internal/mailer needed here. Defined locally to
+// avoid importing mailer (and dragging stdlib net/smtp into the auth package).
+type Mailer interface {
+	Send(ctx context.Context, m MailMessage) error
+}
+
+// MailMessage matches mailer.Message. Duplicated to keep the auth package
+// dependency-light; the server.go wiring adapts the real mailer to this
+// interface.
+type MailMessage struct {
+	To      string
+	Subject string
+	Body    string
+}
+
 type Service struct {
 	repo     *Repo
 	rdb      *redis.Client
 	issuer   *TokenIssuer
 	auditor  Auditor
+	mailer   Mailer
+	webBase  string
 	lockMax  int
 	lockFor  time.Duration
 	verifyTL time.Duration
 	resetTTL time.Duration
 }
 
-func NewService(repo *Repo, rdb *redis.Client, issuer *TokenIssuer, auditor Auditor, lockMax int, lockFor time.Duration) *Service {
+func NewService(repo *Repo, rdb *redis.Client, issuer *TokenIssuer, auditor Auditor, mailer Mailer, webBase string, lockMax int, lockFor time.Duration) *Service {
 	return &Service{
 		repo:     repo,
 		rdb:      rdb,
 		issuer:   issuer,
 		auditor:  auditor,
+		mailer:   mailer,
+		webBase:  webBase,
 		lockMax:  lockMax,
 		lockFor:  lockFor,
 		verifyTL: 24 * time.Hour,
@@ -75,8 +95,33 @@ func (s *Service) Signup(ctx context.Context, email, password, ip, ua string) (*
 	if err != nil {
 		return nil, err
 	}
+	s.sendVerificationEmail(ctx, u.Email, token)
 	s.auditor.Record(ctx, &u.ID, "auth.signup", ip, ua, nil)
 	return &SignupResult{User: u, VerificationToken: token}, nil
+}
+
+func (s *Service) sendVerificationEmail(ctx context.Context, email, token string) {
+	if s.mailer == nil {
+		return
+	}
+	link := fmt.Sprintf("%s/verify-email?token=%s", s.webBase, token)
+	_ = s.mailer.Send(ctx, MailMessage{
+		To:      email,
+		Subject: "Verify your email",
+		Body:    "Welcome. Confirm your address: " + link,
+	})
+}
+
+func (s *Service) sendPasswordResetEmail(ctx context.Context, email, token string) {
+	if s.mailer == nil {
+		return
+	}
+	link := fmt.Sprintf("%s/reset?token=%s", s.webBase, token)
+	_ = s.mailer.Send(ctx, MailMessage{
+		To:      email,
+		Subject: "Reset your password",
+		Body:    "Use this link within the hour: " + link,
+	})
 }
 
 func (s *Service) VerifyEmail(ctx context.Context, token, ip, ua string) error {
@@ -286,6 +331,7 @@ func (s *Service) RequestPasswordReset(ctx context.Context, email, ip, ua string
 	if err != nil {
 		return "", err
 	}
+	s.sendPasswordResetEmail(ctx, u.Email, token)
 	s.auditor.Record(ctx, &u.ID, "auth.reset_requested", ip, ua, nil)
 	return token, nil
 }

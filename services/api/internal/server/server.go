@@ -23,6 +23,7 @@ import (
 	"github.com/platform/api/internal/drawings"
 	"github.com/platform/api/internal/entitlements"
 	"github.com/platform/api/internal/layouts"
+	"github.com/platform/api/internal/mailer"
 	"github.com/platform/api/internal/market"
 	mw "github.com/platform/api/internal/middleware"
 	"github.com/platform/api/internal/notifications"
@@ -78,7 +79,9 @@ func New(d Deps) http.Handler {
 	auditor := audit.NewRecorder(d.DB, d.Log)
 	repo := auth.NewRepo(d.DB)
 	issuer := auth.NewTokenIssuer(d.Cfg.JWTSecret, d.Cfg.JWTAccessTTL, d.Cfg.JWTRefreshTTL)
-	svc := auth.NewService(repo, d.Redis, issuer, auditor, d.Cfg.LoginLockMax, d.Cfg.LoginLockFor)
+	mail := mailer.New(d.Log, d.Cfg.SMTPAddr, d.Cfg.SMTPUsername, d.Cfg.SMTPPassword, d.Cfg.MailFrom)
+	svc := auth.NewService(repo, d.Redis, issuer, auditor, &authMailerAdapter{m: mail}, d.Cfg.WebBaseURL,
+		d.Cfg.LoginLockMax, d.Cfg.LoginLockFor)
 	h := auth.NewHandlers(svc, repo)
 
 	authIPLimit := mw.FixedWindow(d.Redis, "auth", d.Cfg.LoginRateLimit, d.Cfg.LoginRateWindow, mw.KeyByClientIP)
@@ -248,6 +251,15 @@ func New(d Deps) http.Handler {
 	})
 
 	return r
+}
+
+// authMailerAdapter bridges mailer.Mailer to auth.Mailer; the auth package
+// owns its own minimal Mailer/MailMessage types so it doesn't pull in
+// net/smtp transitively.
+type authMailerAdapter struct{ m mailer.Mailer }
+
+func (a *authMailerAdapter) Send(ctx context.Context, msg auth.MailMessage) error {
+	return a.m.Send(ctx, mailer.Message{To: msg.To, Subject: msg.Subject, Body: msg.Body})
 }
 
 // apiKeyResolverAdapter bridges apikeys.Repo to mw.APIKeyResolver. The two
