@@ -16,6 +16,7 @@ import (
 	"github.com/platform/api/internal/audit"
 	"github.com/platform/api/internal/auth"
 	"github.com/platform/api/internal/config"
+	"github.com/platform/api/internal/market"
 	mw "github.com/platform/api/internal/middleware"
 )
 
@@ -97,6 +98,18 @@ func New(d Deps) http.Handler {
 		r.Use(requireAuth)
 		r.Get("/", h.Me(uidFromCtx))
 	})
+
+	mktRepo := market.NewRepo(d.DB)
+	mktH := market.NewHandlers(mktRepo)
+	wsGW := market.NewWSGateway(d.Redis, d.Log)
+
+	r.Route("/v1/market", func(r chi.Router) {
+		r.Get("/symbols", mktH.ListSymbols)
+		r.Get("/candles", mktH.Candles)
+		r.Get("/ticks", mktH.RecentTicks)
+	})
+
+	r.Get("/v1/stream", wsGW.Handle)
 
 	return r
 }

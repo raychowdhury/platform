@@ -106,3 +106,29 @@ api-up: ## bring up api + infra
 .PHONY: api-logs
 api-logs: ## tail api logs
 	docker compose logs -f --tail=200 api
+
+INGEST_DIR := services/ingest
+
+.PHONY: ingest-tidy
+ingest-tidy: ## go mod tidy in services/ingest
+	cd $(INGEST_DIR) && go mod tidy
+
+.PHONY: ingest-build
+ingest-build: ## go build ingest binary
+	cd $(INGEST_DIR) && go build -o ../../bin/ingest ./cmd/ingest
+
+.PHONY: ingest-run
+ingest-run: ## run ingest locally (needs .env + infra up)
+	set -a; [ -f .env ] && . ./.env; set +a; cd $(INGEST_DIR) && go run ./cmd/ingest
+
+.PHONY: ingest-image
+ingest-image: ## build ingest docker image
+	docker compose build ingest
+
+.PHONY: ingest-up
+ingest-up: ## bring up ingest
+	docker compose up -d --build ingest
+
+.PHONY: ingest-logs
+ingest-logs: ## tail ingest logs
+	docker compose logs -f --tail=200 ingest

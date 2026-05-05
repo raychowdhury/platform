@@ -52,6 +52,28 @@ services:
     ports:
       - "${API_PORT:-8080}:8080"
 
+  ingest:
+    build:
+      context: ./services/ingest
+    container_name: platform-ingest
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    environment:
+      POSTGRES_DSN: "postgres://${POSTGRES_USER:-platform}:${POSTGRES_PASSWORD:-platform_dev}@timescaledb:5432/${POSTGRES_DB:-platform}?sslmode=disable"
+      REDIS_ADDR: "redis:6379"
+      EXCHANGE: "${EXCHANGE:-coinbase}"
+      BINANCE_WS_URL: "${BINANCE_WS_URL:-wss://stream.binance.us:9443}"
+      COINBASE_WS_URL: "${COINBASE_WS_URL:-wss://ws-feed.exchange.coinbase.com}"
+      INGEST_SYMBOLS: "${INGEST_SYMBOLS:-BTC-USD}"
+      INGEST_BATCH_SIZE: "${INGEST_BATCH_SIZE:-200}"
+      INGEST_BATCH_INTERVAL: "${INGEST_BATCH_INTERVAL:-500ms}"
+
 volumes:
   timescale_data:
   redis_data:

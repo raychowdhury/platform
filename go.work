@@ -1,3 +1,6 @@
 go 1.23
 
-use ./services/api
+use (
+	./services/api
+	./services/ingest
+)
