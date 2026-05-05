@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shopspring/decimal"
 )
 
 var (
@@ -20,37 +21,66 @@ type Repo struct {
 
 func NewRepo(db *pgxpool.Pool) *Repo { return &Repo{db: db} }
 
+// All numeric columns are read via `::text` cast and decoded by
+// decimal.NewFromString — pgx v5 has no built-in NUMERIC↔decimal.Decimal
+// scanner, and going through float8 would defeat the point of moving off
+// floats. The text path round-trips NUMERIC(24,8) losslessly.
 const orderColumns = `
 	id, user_id, client_order_id, symbol, side, type,
-	COALESCE(limit_price, 0)::float8, COALESCE(stop_price, 0)::float8,
-	qty::float8, filled_qty::float8, COALESCE(avg_fill_price, 0)::float8,
-	reserved_cost::float8, status, reject_reason, created_at, updated_at
+	limit_price::text, stop_price::text,
+	qty::text, filled_qty::text, avg_fill_price::text,
+	reserved_cost::text, status, reject_reason, created_at, updated_at
 `
+
+func parseDec(s *string) (decimal.Decimal, error) {
+	if s == nil || *s == "" {
+		return decimal.Zero, nil
+	}
+	return decimal.NewFromString(*s)
+}
+
+func parseDecPtr(s *string) (*decimal.Decimal, error) {
+	if s == nil || *s == "" {
+		return nil, nil
+	}
+	d, err := decimal.NewFromString(*s)
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
 
 func scanOrder(row pgx.Row) (*Order, error) {
 	var o Order
-	var limit, stop, avg float64
 	var coid, reject *string
+	var limit, stop, qty, filled, avg, reserved *string
 	if err := row.Scan(
 		&o.ID, &o.UserID, &coid, &o.Symbol, &o.Side, &o.Type,
-		&limit, &stop, &o.Qty, &o.FilledQty, &avg, &o.ReservedCost,
+		&limit, &stop, &qty, &filled, &avg, &reserved,
 		&o.Status, &reject, &o.CreatedAt, &o.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
 	o.ClientOrderID = coid
 	o.RejectReason = reject
-	if limit != 0 {
-		l := limit
-		o.LimitPrice = &l
+	var err error
+	if o.LimitPrice, err = parseDecPtr(limit); err != nil {
+		return nil, err
 	}
-	if stop != 0 {
-		s := stop
-		o.StopPrice = &s
+	if o.StopPrice, err = parseDecPtr(stop); err != nil {
+		return nil, err
 	}
-	if avg != 0 {
-		a := avg
-		o.AvgFillPrice = &a
+	if o.Qty, err = parseDec(qty); err != nil {
+		return nil, err
+	}
+	if o.FilledQty, err = parseDec(filled); err != nil {
+		return nil, err
+	}
+	if o.AvgFillPrice, err = parseDecPtr(avg); err != nil {
+		return nil, err
+	}
+	if o.ReservedCost, err = parseDec(reserved); err != nil {
+		return nil, err
 	}
 	return &o, nil
 }
@@ -61,15 +91,16 @@ type InsertParams struct {
 	Symbol        string
 	Side          Side
 	Type          Type
-	LimitPrice    *float64
-	StopPrice     *float64
-	Qty           float64
-	ReservedCost  float64
+	LimitPrice    *decimal.Decimal
+	StopPrice     *decimal.Decimal
+	Qty           decimal.Decimal
+	ReservedCost  decimal.Decimal
 	Status        Status
 }
 
 // InsertOrderTx writes an orders row inside an existing transaction (callers
-// that also need to atomically lock balance use this).
+// that also need to atomically lock balance use this). Decimals are passed
+// as their canonical string form; postgres parses into NUMERIC.
 func (r *Repo) InsertOrderTx(ctx context.Context, tx pgx.Tx, p InsertParams) (*Order, error) {
 	row := tx.QueryRow(ctx, `
 		INSERT INTO orders (user_id, client_order_id, symbol, side, type,
@@ -77,9 +108,17 @@ func (r *Repo) InsertOrderTx(ctx context.Context, tx pgx.Tx, p InsertParams) (*O
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING `+orderColumns,
 		p.UserID, p.ClientOrderID, p.Symbol, p.Side, p.Type,
-		p.LimitPrice, p.StopPrice, p.Qty, p.ReservedCost, p.Status,
+		decPtrStr(p.LimitPrice), decPtrStr(p.StopPrice),
+		p.Qty.String(), p.ReservedCost.String(), p.Status,
 	)
 	return scanOrder(row)
+}
+
+func decPtrStr(d *decimal.Decimal) any {
+	if d == nil {
+		return nil
+	}
+	return d.String()
 }
 
 // PoolDB exposes the pool for service-level transactions.
@@ -144,7 +183,7 @@ func (r *Repo) ListFills(ctx context.Context, userID uuid.UUID, limit int) ([]Fi
 	}
 	rows, err := r.db.Query(ctx, `
 		SELECT id, order_id, user_id, symbol, side,
-		       price::float8, qty::float8, fee::float8, created_at
+		       price::text, qty::text, fee::text, created_at
 		FROM fills WHERE user_id = $1
 		ORDER BY created_at DESC LIMIT $2
 	`, userID, limit)
@@ -155,7 +194,17 @@ func (r *Repo) ListFills(ctx context.Context, userID uuid.UUID, limit int) ([]Fi
 	var out []Fill
 	for rows.Next() {
 		var f Fill
-		if err := rows.Scan(&f.ID, &f.OrderID, &f.UserID, &f.Symbol, &f.Side, &f.Price, &f.Qty, &f.Fee, &f.CreatedAt); err != nil {
+		var price, qty, fee string
+		if err := rows.Scan(&f.ID, &f.OrderID, &f.UserID, &f.Symbol, &f.Side, &price, &qty, &fee, &f.CreatedAt); err != nil {
+			return nil, err
+		}
+		if f.Price, err = decimal.NewFromString(price); err != nil {
+			return nil, err
+		}
+		if f.Qty, err = decimal.NewFromString(qty); err != nil {
+			return nil, err
+		}
+		if f.Fee, err = decimal.NewFromString(fee); err != nil {
 			return nil, err
 		}
 		out = append(out, f)
@@ -166,7 +215,7 @@ func (r *Repo) ListFills(ctx context.Context, userID uuid.UUID, limit int) ([]Fi
 func (r *Repo) ListPositions(ctx context.Context, userID uuid.UUID) ([]Position, error) {
 	rows, err := r.db.Query(ctx, `
 		SELECT user_id, symbol,
-		       qty::float8, locked_qty::float8, avg_cost::float8, realized_pnl::float8,
+		       qty::text, locked_qty::text, avg_cost::text, realized_pnl::text,
 		       updated_at
 		FROM positions WHERE user_id = $1 AND (qty <> 0 OR locked_qty <> 0)
 		ORDER BY symbol
@@ -178,10 +227,23 @@ func (r *Repo) ListPositions(ctx context.Context, userID uuid.UUID) ([]Position,
 	var out []Position
 	for rows.Next() {
 		var p Position
-		if err := rows.Scan(&p.UserID, &p.Symbol, &p.Qty, &p.LockedQty, &p.AvgCost, &p.RealizedPnL, &p.UpdatedAt); err != nil {
+		var qty, locked, avg, realized string
+		if err := rows.Scan(&p.UserID, &p.Symbol, &qty, &locked, &avg, &realized, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
-		p.Available = p.Qty - p.LockedQty
+		if p.Qty, err = decimal.NewFromString(qty); err != nil {
+			return nil, err
+		}
+		if p.LockedQty, err = decimal.NewFromString(locked); err != nil {
+			return nil, err
+		}
+		if p.AvgCost, err = decimal.NewFromString(avg); err != nil {
+			return nil, err
+		}
+		if p.RealizedPnL, err = decimal.NewFromString(realized); err != nil {
+			return nil, err
+		}
+		p.Available = p.Qty.Sub(p.LockedQty)
 		out = append(out, p)
 	}
 	return out, rows.Err()
@@ -189,15 +251,25 @@ func (r *Repo) ListPositions(ctx context.Context, userID uuid.UUID) ([]Position,
 
 func (r *Repo) GetAccount(ctx context.Context, userID uuid.UUID) (*Account, error) {
 	a := &Account{UserID: userID}
+	var bal, lck string
 	err := r.db.QueryRow(ctx, `
-		SELECT user_id, balance::float8, locked::float8, quote_currency, updated_at
+		SELECT user_id, balance::text, locked::text, quote_currency, updated_at
 		FROM accounts WHERE user_id = $1
-	`, userID).Scan(&a.UserID, &a.Balance, &a.Locked, &a.QuoteCurrency, &a.UpdatedAt)
+	`, userID).Scan(&a.UserID, &bal, &lck, &a.QuoteCurrency, &a.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrAccountMissing
 	}
-	a.Available = a.Balance - a.Locked
-	return a, err
+	if err != nil {
+		return nil, err
+	}
+	if a.Balance, err = decimal.NewFromString(bal); err != nil {
+		return nil, err
+	}
+	if a.Locked, err = decimal.NewFromString(lck); err != nil {
+		return nil, err
+	}
+	a.Available = a.Balance.Sub(a.Locked)
+	return a, nil
 }
 
 func (r *Repo) ActiveSymbols(ctx context.Context) ([]string, error) {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 
 	"github.com/platform/api/internal/httputil"
 )
@@ -21,13 +22,13 @@ func NewHandlers(svc *Service) *Handlers { return &Handlers{svc: svc} }
 type uidProvider func(*http.Request) uuid.UUID
 
 type placeReq struct {
-	ClientOrderID *string  `json:"client_order_id,omitempty"`
-	Symbol        string   `json:"symbol"`
-	Side          string   `json:"side"`
-	Type          string   `json:"type"`
-	LimitPrice    *float64 `json:"limit_price,omitempty"`
-	StopPrice     *float64 `json:"stop_price,omitempty"`
-	Qty           float64  `json:"qty"`
+	ClientOrderID *string          `json:"client_order_id,omitempty"`
+	Symbol        string           `json:"symbol"`
+	Side          string           `json:"side"`
+	Type          string           `json:"type"`
+	LimitPrice    *decimal.Decimal `json:"limit_price,omitempty"`
+	StopPrice     *decimal.Decimal `json:"stop_price,omitempty"`
+	Qty           decimal.Decimal  `json:"qty"`
 }
 
 func (h *Handlers) Place(uid uidProvider) http.HandlerFunc {

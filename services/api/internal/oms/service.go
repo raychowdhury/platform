@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/shopspring/decimal"
 )
 
 var (
@@ -25,7 +26,7 @@ var (
 
 // marketSlippageBuffer over-reserves market-buy orders to absorb price moves
 // between place and fill. Any unspent reservation is refunded at fill time.
-const marketSlippageBuffer = 1.01 // 1%
+var marketSlippageBuffer = decimal.NewFromFloat(1.01)
 
 type Service struct {
 	repo   *Repo
@@ -41,9 +42,9 @@ type PlaceParams struct {
 	Symbol        string
 	Side          Side
 	Type          Type
-	LimitPrice    *float64
-	StopPrice     *float64
-	Qty           float64
+	LimitPrice    *decimal.Decimal
+	StopPrice     *decimal.Decimal
+	Qty           decimal.Decimal
 	ClientOrderID *string
 }
 
@@ -57,7 +58,7 @@ func (s *Service) Place(ctx context.Context, p PlaceParams) (*Order, error) {
 	}
 	switch p.Type {
 	case Limit:
-		if p.LimitPrice == nil || *p.LimitPrice <= 0 {
+		if p.LimitPrice == nil || !p.LimitPrice.IsPositive() {
 			return nil, ErrLimitPriceMissing
 		}
 		p.StopPrice = nil
@@ -65,14 +66,14 @@ func (s *Service) Place(ctx context.Context, p PlaceParams) (*Order, error) {
 		p.LimitPrice = nil
 		p.StopPrice = nil
 	case StopMarket:
-		if p.StopPrice == nil || *p.StopPrice <= 0 {
+		if p.StopPrice == nil || !p.StopPrice.IsPositive() {
 			return nil, ErrStopPriceMissing
 		}
 		p.LimitPrice = nil
 	default:
 		return nil, ErrInvalidType
 	}
-	if p.Qty <= 0 {
+	if !p.Qty.IsPositive() {
 		return nil, ErrInvalidQty
 	}
 
@@ -81,15 +82,15 @@ func (s *Service) Place(ctx context.Context, p PlaceParams) (*Order, error) {
 	//   buy + market        → qty * mark * 1.01 (slippage buffer)
 	//   buy + stop_market   → qty * stop * 1.01 (stop is the trigger floor for buy)
 	//   sell                → no balance reservation (qty check at fill, against live position)
-	var reserved float64
+	reserved := decimal.Zero
 	if p.Side == Buy {
 		ref, err := s.priceForReservation(p)
 		if err != nil {
 			return nil, err
 		}
-		reserved = p.Qty * ref
+		reserved = p.Qty.Mul(ref)
 		if p.Type == Market || p.Type == StopMarket {
-			reserved *= marketSlippageBuffer
+			reserved = reserved.Mul(marketSlippageBuffer)
 		}
 	}
 
@@ -107,46 +108,56 @@ func (s *Service) Place(ctx context.Context, p PlaceParams) (*Order, error) {
 	}
 	defer tx.Rollback(ctx)
 
-	if reserved > 0 {
-		var avail float64
+	if reserved.IsPositive() {
+		var availStr string
 		if err := tx.QueryRow(ctx, `
-			SELECT (balance - locked)::float8 FROM accounts WHERE user_id = $1 FOR UPDATE
-		`, p.UserID).Scan(&avail); err != nil {
+			SELECT (balance - locked)::text FROM accounts WHERE user_id = $1 FOR UPDATE
+		`, p.UserID).Scan(&availStr); err != nil {
 			return nil, err
 		}
-		if avail+1e-8 < reserved {
-			return nil, fmt.Errorf("%w: need %.2f, available %.2f", ErrInsufficientFunds, reserved, avail)
+		avail, err := decimal.NewFromString(availStr)
+		if err != nil {
+			return nil, err
+		}
+		if avail.LessThan(reserved) {
+			return nil, fmt.Errorf("%w: need %s, available %s", ErrInsufficientFunds, reserved.StringFixed(2), avail.StringFixed(2))
 		}
 		if _, err := tx.Exec(ctx, `
-			UPDATE accounts SET locked = locked + $1, updated_at = now() WHERE user_id = $2
-		`, reserved, p.UserID); err != nil {
+			UPDATE accounts SET locked = locked + $1::numeric, updated_at = now() WHERE user_id = $2
+		`, reserved.String(), p.UserID); err != nil {
 			return nil, err
 		}
 	}
 
 	if p.Side == Sell {
 		// Lock qty out of the position so concurrent open sells can't oversell.
-		// Position row is created/updated even when the user has no open position
-		// yet — Sell with no position will fail the available check below.
-		var posQty, lockedQty float64
+		var posStr, lockedStr string
 		err := tx.QueryRow(ctx, `
-			SELECT qty::float8, locked_qty::float8
+			SELECT qty::text, locked_qty::text
 			FROM positions WHERE user_id = $1 AND symbol = $2 FOR UPDATE
-		`, p.UserID, p.Symbol).Scan(&posQty, &lockedQty)
+		`, p.UserID, p.Symbol).Scan(&posStr, &lockedStr)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("%w: need %.8f, available 0", ErrInsufficientQty, p.Qty)
+			return nil, fmt.Errorf("%w: need %s, available 0", ErrInsufficientQty, p.Qty.String())
 		}
 		if err != nil {
 			return nil, err
 		}
-		avail := posQty - lockedQty
-		if avail+1e-8 < p.Qty {
-			return nil, fmt.Errorf("%w: need %.8f, available %.8f", ErrInsufficientQty, p.Qty, avail)
+		posQty, err := decimal.NewFromString(posStr)
+		if err != nil {
+			return nil, err
+		}
+		lockedQty, err := decimal.NewFromString(lockedStr)
+		if err != nil {
+			return nil, err
+		}
+		avail := posQty.Sub(lockedQty)
+		if avail.LessThan(p.Qty) {
+			return nil, fmt.Errorf("%w: need %s, available %s", ErrInsufficientQty, p.Qty.String(), avail.String())
 		}
 		if _, err := tx.Exec(ctx, `
-			UPDATE positions SET locked_qty = locked_qty + $1, updated_at = now()
+			UPDATE positions SET locked_qty = locked_qty + $1::numeric, updated_at = now()
 			WHERE user_id = $2 AND symbol = $3
-		`, p.Qty, p.UserID, p.Symbol); err != nil {
+		`, p.Qty.String(), p.UserID, p.Symbol); err != nil {
 			return nil, err
 		}
 	}
@@ -181,11 +192,11 @@ func (s *Service) Place(ctx context.Context, p PlaceParams) (*Order, error) {
 // For stop_market buys the order executes at market when triggered, so the
 // reservation must cover the higher of stop_price and current mark — a stop
 // placed below the current price triggers immediately and fills at mark.
-func (s *Service) priceForReservation(p PlaceParams) (float64, error) {
-	mark := 0.0
+func (s *Service) priceForReservation(p PlaceParams) (decimal.Decimal, error) {
+	mark := decimal.Zero
 	if s.engine != nil {
 		if v, ok := s.engine.LastPrice(p.Symbol); ok {
-			mark = v
+			mark = decimal.NewFromFloat(v)
 		}
 	}
 	switch p.Type {
@@ -193,17 +204,17 @@ func (s *Service) priceForReservation(p PlaceParams) (float64, error) {
 		return *p.LimitPrice, nil
 	case StopMarket:
 		ref := *p.StopPrice
-		if mark > ref {
+		if mark.GreaterThan(ref) {
 			ref = mark
 		}
 		return ref, nil
 	case Market:
-		if mark > 0 {
+		if mark.IsPositive() {
 			return mark, nil
 		}
-		return 0, ErrNoMarkPrice
+		return decimal.Zero, ErrNoMarkPrice
 	}
-	return 0, ErrInvalidType
+	return decimal.Zero, ErrInvalidType
 }
 
 func (s *Service) Cancel(ctx context.Context, userID, orderID uuid.UUID) (*Order, error) {
@@ -217,21 +228,21 @@ func (s *Service) Cancel(ctx context.Context, userID, orderID uuid.UUID) (*Order
 	if err != nil {
 		return nil, err
 	}
-	if o.Side == Buy && o.ReservedCost > 0 {
+	if o.Side == Buy && o.ReservedCost.IsPositive() {
 		if _, err := tx.Exec(ctx, `
-			UPDATE accounts SET locked = locked - $1, updated_at = now() WHERE user_id = $2
-		`, o.ReservedCost, userID); err != nil {
+			UPDATE accounts SET locked = locked - $1::numeric, updated_at = now() WHERE user_id = $2
+		`, o.ReservedCost.String(), userID); err != nil {
 			return nil, err
 		}
 	}
 	if o.Side == Sell {
 		// Release the unfilled portion of the qty back to position.locked_qty.
-		remaining := o.Qty - o.FilledQty
-		if remaining > 0 {
+		remaining := o.Qty.Sub(o.FilledQty)
+		if remaining.IsPositive() {
 			if _, err := tx.Exec(ctx, `
-				UPDATE positions SET locked_qty = locked_qty - $1, updated_at = now()
+				UPDATE positions SET locked_qty = locked_qty - $1::numeric, updated_at = now()
 				WHERE user_id = $2 AND symbol = $3
-			`, remaining, userID, o.Symbol); err != nil {
+			`, remaining.String(), userID, o.Symbol); err != nil {
 				return nil, err
 			}
 		}

@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/platform/api/internal/alerts"
 	"github.com/platform/api/internal/config"
 	"github.com/platform/api/internal/notifications"
@@ -17,6 +19,15 @@ import (
 	"github.com/platform/api/internal/server"
 	"github.com/platform/api/internal/storage"
 )
+
+func init() {
+	// Emit decimals as JSON numbers, not strings. Wire compatibility with the
+	// existing FE (which expects `balance: number` and uses .toFixed). Server
+	// math still happens in decimal — this only changes how the marshalled
+	// value looks on the wire. JS Number can lose precision past 2^53; that's
+	// acceptable for paper-trading display values (amounts comfortably fit).
+	decimal.MarshalJSONWithoutQuotes = true
+}
 
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
