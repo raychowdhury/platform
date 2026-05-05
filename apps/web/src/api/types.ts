@@ -116,6 +116,22 @@ export interface Subscription {
   updated_at: string;
 }
 
+export interface LoginResponse extends Partial<TokenPair> {
+  requires_mfa?: boolean;
+  mfa_token?: string;
+}
+
+export interface MFAStatus {
+  enabled: boolean;
+  pending: boolean;
+}
+
+export interface MFASetupResponse {
+  secret: string;
+  otpauth_url: string;
+  recovery_codes: string[];
+}
+
 export const TF_SECONDS: Record<Timeframe, number> = {
   "1m": 60,
   "5m": 300,

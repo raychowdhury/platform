@@ -85,6 +85,7 @@ func New(d Deps) http.Handler {
 			r.Use(authIPLimit)
 			r.Post("/signup", h.Signup)
 			r.Post("/login", h.Login)
+			r.Post("/login/mfa", h.LoginMFA)
 			r.Post("/refresh", h.Refresh)
 			r.Post("/verify-email", h.VerifyEmail)
 			r.Post("/password/reset", h.RequestPasswordReset)
@@ -100,6 +101,10 @@ func New(d Deps) http.Handler {
 	r.Route("/v1/me", func(r chi.Router) {
 		r.Use(requireAuth)
 		r.Get("/", h.Me(uidFromCtx))
+		r.Get("/mfa", h.MFAStatus(uidFromCtx))
+		r.Post("/mfa/totp/setup", h.MFASetup(uidFromCtx))
+		r.Post("/mfa/totp/enable", h.MFAEnable(uidFromCtx))
+		r.Post("/mfa/totp/disable", h.MFADisable(uidFromCtx))
 	})
 
 	mktRepo := market.NewRepo(d.DB)

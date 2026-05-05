@@ -17,9 +17,14 @@ export default function Signup() {
     setBusy(true);
     try {
       await api.signup(email, password);
-      const tok = await api.login(email, password);
-      setTokens(tok);
-      navigate("/", { replace: true });
+      const res = await api.login(email, password);
+      // newly-signed-up users have no MFA, so login returns tokens directly.
+      if (res.access_token && res.refresh_token) {
+        setTokens(res as Required<typeof res>);
+        navigate("/", { replace: true });
+      } else {
+        throw new Error("unexpected login response");
+      }
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "signup failed");
     } finally {

@@ -92,42 +92,93 @@ func (s *Service) VerifyEmail(ctx context.Context, token, ip, ua string) error {
 
 // ---------- login / refresh / logout ----------
 
-func (s *Service) Login(ctx context.Context, email, password, ip, ua string) (*TokenPair, *User, error) {
+// LoginResult either contains a final TokenPair (no MFA) or an MFAToken handle
+// the client must redeem via VerifyLoginMFA. Exactly one of the two is set.
+type LoginResult struct {
+	Tokens   *TokenPair
+	MFAToken string
+	User     *User
+}
+
+const mfaTokenTTL = 5 * time.Minute
+
+func (s *Service) Login(ctx context.Context, email, password, ip, ua string) (*LoginResult, error) {
 	email = normalizeEmail(email)
 	u, err := s.repo.GetUserByEmail(ctx, email)
 	if errors.Is(err, ErrUserNotFound) {
 		s.auditor.Record(ctx, nil, "auth.login.fail", ip, ua, map[string]any{"reason": "no_user", "email": email})
-		return nil, nil, ErrInvalidCredentials
+		return nil, ErrInvalidCredentials
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if u.Status != "active" {
 		s.auditor.Record(ctx, &u.ID, "auth.login.fail", ip, ua, map[string]any{"reason": "inactive"})
-		return nil, nil, ErrAccountInactive
+		return nil, ErrAccountInactive
 	}
 	if u.LockedUntil != nil && u.LockedUntil.After(time.Now()) {
 		s.auditor.Record(ctx, &u.ID, "auth.login.fail", ip, ua, map[string]any{"reason": "locked"})
-		return nil, nil, ErrAccountLocked
+		return nil, ErrAccountLocked
 	}
 	ok, err := VerifyPassword(password, u.PasswordHash)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if !ok {
 		_ = s.repo.RecordFailedLogin(ctx, u.ID, s.lockMax, s.lockFor)
 		s.auditor.Record(ctx, &u.ID, "auth.login.fail", ip, ua, map[string]any{"reason": "bad_password"})
-		return nil, nil, ErrInvalidCredentials
+		return nil, ErrInvalidCredentials
 	}
+
+	// Password is valid. If MFA is enabled, hold tokens behind a one-time MFA challenge.
+	if _, enabled, err := s.repo.GetMFASecret(ctx, u.ID); err == nil && enabled {
+		mfaTok, err := s.issueOpaqueToken(ctx, "mfa", u.ID, mfaTokenTTL)
+		if err != nil {
+			return nil, err
+		}
+		s.auditor.Record(ctx, &u.ID, "auth.login.mfa_required", ip, ua, nil)
+		return &LoginResult{MFAToken: mfaTok, User: u}, nil
+	}
+
 	if err := s.repo.RecordSuccessfulLogin(ctx, u.ID); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	pair, err := s.issuePair(ctx, u.ID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	s.auditor.Record(ctx, &u.ID, "auth.login.ok", ip, ua, nil)
-	return pair, u, nil
+	return &LoginResult{Tokens: pair, User: u}, nil
+}
+
+// VerifyLoginMFA consumes the one-time mfa_token, validates the supplied TOTP
+// or recovery code, and returns the final token pair. The mfa_token cannot be
+// reused (Redis GETDEL).
+func (s *Service) VerifyLoginMFA(ctx context.Context, mfaToken, code, ip, ua string) (*TokenPair, error) {
+	uid, err := s.consumeOpaqueToken(ctx, "mfa", mfaToken)
+	if err != nil {
+		return nil, err
+	}
+	secret, enabled, err := s.repo.GetMFASecret(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	if !enabled {
+		return nil, ErrMFANotEnabled
+	}
+	if !s.verifyMFACode(ctx, uid, secret, code) {
+		s.auditor.Record(ctx, &uid, "auth.login.mfa_fail", ip, ua, nil)
+		return nil, ErrMFABadCode
+	}
+	if err := s.repo.RecordSuccessfulLogin(ctx, uid); err != nil {
+		return nil, err
+	}
+	pair, err := s.issuePair(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	s.auditor.Record(ctx, &uid, "auth.login.ok", ip, ua, map[string]any{"mfa": true})
+	return pair, nil
 }
 
 func (s *Service) Refresh(ctx context.Context, refreshToken, ip, ua string) (*TokenPair, error) {

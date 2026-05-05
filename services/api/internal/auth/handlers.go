@@ -105,13 +105,42 @@ func (h *Handlers) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusNoContent, nil)
 }
 
+type loginResp struct {
+	*TokenPair
+	RequiresMFA bool   `json:"requires_mfa,omitempty"`
+	MFAToken    string `json:"mfa_token,omitempty"`
+}
+
 func (h *Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginReq
 	if err := httputil.DecodeJSON(r, &req); err != nil {
 		httputil.WriteError(w, http.StatusBadRequest, "invalid body")
 		return
 	}
-	pair, _, err := h.svc.Login(r.Context(), req.Email, req.Password, httputil.ClientIP(r), r.UserAgent())
+	res, err := h.svc.Login(r.Context(), req.Email, req.Password, httputil.ClientIP(r), r.UserAgent())
+	if err != nil {
+		mapErr(w, err)
+		return
+	}
+	if res.MFAToken != "" {
+		httputil.WriteJSON(w, http.StatusOK, loginResp{RequiresMFA: true, MFAToken: res.MFAToken})
+		return
+	}
+	httputil.WriteJSON(w, http.StatusOK, res.Tokens)
+}
+
+type loginMFAReq struct {
+	MFAToken string `json:"mfa_token"`
+	Code     string `json:"code"`
+}
+
+func (h *Handlers) LoginMFA(w http.ResponseWriter, r *http.Request) {
+	var req loginMFAReq
+	if err := httputil.DecodeJSON(r, &req); err != nil || req.MFAToken == "" || req.Code == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	pair, err := h.svc.VerifyLoginMFA(r.Context(), req.MFAToken, req.Code, httputil.ClientIP(r), r.UserAgent())
 	if err != nil {
 		mapErr(w, err)
 		return
@@ -181,6 +210,70 @@ func (h *Handlers) ChangePassword(uidProvider func(*http.Request) uuid.UUID) htt
 	}
 }
 
+// ---------- MFA ----------
+
+type mfaCodeReq struct {
+	Code string `json:"code"`
+}
+
+func (h *Handlers) MFAStatus(uidProvider func(*http.Request) uuid.UUID) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		st, err := h.svc.MFAStatusFor(r.Context(), uidProvider(r))
+		if err != nil {
+			mapErr(w, err)
+			return
+		}
+		httputil.WriteJSON(w, http.StatusOK, st)
+	}
+}
+
+func (h *Handlers) MFASetup(uidProvider func(*http.Request) uuid.UUID) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		uid := uidProvider(r)
+		u, err := h.repo.GetUserByID(r.Context(), uid)
+		if err != nil {
+			mapErr(w, err)
+			return
+		}
+		setup, err := h.svc.SetupMFA(r.Context(), uid, u.Email)
+		if err != nil {
+			mapErr(w, err)
+			return
+		}
+		httputil.WriteJSON(w, http.StatusOK, setup)
+	}
+}
+
+func (h *Handlers) MFAEnable(uidProvider func(*http.Request) uuid.UUID) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req mfaCodeReq
+		if err := httputil.DecodeJSON(r, &req); err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "invalid body")
+			return
+		}
+		if err := h.svc.EnableMFA(r.Context(), uidProvider(r), req.Code, httputil.ClientIP(r), r.UserAgent()); err != nil {
+			mapErr(w, err)
+			return
+		}
+		httputil.WriteJSON(w, http.StatusNoContent, nil)
+	}
+}
+
+func (h *Handlers) MFADisable(uidProvider func(*http.Request) uuid.UUID) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req mfaCodeReq
+		if err := httputil.DecodeJSON(r, &req); err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "invalid body")
+			return
+		}
+		if err := h.svc.DisableMFA(r.Context(), uidProvider(r), req.Code, httputil.ClientIP(r), r.UserAgent()); err != nil {
+			mapErr(w, err)
+			return
+		}
+		httputil.WriteJSON(w, http.StatusNoContent, nil)
+	}
+}
+
 func (h *Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 	var req resetRequestReq
 	if err := httputil.DecodeJSON(r, &req); err != nil {
@@ -229,6 +322,11 @@ func mapErr(w http.ResponseWriter, err error) {
 		httputil.WriteError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, ErrUserNotFound):
 		httputil.WriteError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, ErrMFANotPending), errors.Is(err, ErrMFAAlreadyEnabled),
+		errors.Is(err, ErrMFANotEnabled):
+		httputil.WriteError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, ErrMFABadCode):
+		httputil.WriteError(w, http.StatusUnauthorized, err.Error())
 	default:
 		httputil.WriteError(w, http.StatusBadRequest, err.Error())
 	}

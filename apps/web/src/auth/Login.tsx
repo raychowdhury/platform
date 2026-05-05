@@ -10,20 +10,66 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
+  const [code, setCode] = useState("");
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setErr(null);
     setBusy(true);
     try {
-      const tok = await api.login(email, password);
-      setTokens(tok);
-      navigate("/", { replace: true });
+      const res = await api.login(email, password);
+      if (res.requires_mfa && res.mfa_token) {
+        setMfaToken(res.mfa_token);
+        return;
+      }
+      if (res.access_token && res.refresh_token) {
+        setTokens(res as Required<typeof res>);
+        navigate("/", { replace: true });
+      }
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : "login failed");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function onMFA(e: FormEvent) {
+    e.preventDefault();
+    if (!mfaToken) return;
+    setErr(null);
+    setBusy(true);
+    try {
+      const tok = await api.loginMFA(mfaToken, code);
+      setTokens(tok);
+      navigate("/", { replace: true });
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "invalid code");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (mfaToken) {
+    return (
+      <div className="container">
+        <h1>Two-factor code</h1>
+        <p className="muted">Enter the 6-digit code from your authenticator app, or a recovery code.</p>
+        <form onSubmit={onMFA}>
+          <div className="field">
+            <label>Code</label>
+            <input value={code} onChange={(e) => setCode(e.target.value)} autoFocus required />
+          </div>
+          {err && <div className="error">{err}</div>}
+          <button disabled={busy}>{busy ? "Verifying..." : "Verify"}</button>
+        </form>
+        <p className="muted" style={{ marginTop: 16 }}>
+          <button type="button" className="link" onClick={() => { setMfaToken(null); setCode(""); }}>
+            ← back to email
+          </button>
+        </p>
+      </div>
+    );
   }
 
   return (

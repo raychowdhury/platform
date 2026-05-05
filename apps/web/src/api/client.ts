@@ -2,6 +2,9 @@ import { getAuth, useAuth } from "../auth/store";
 import type {
   Account,
   Candle,
+  LoginResponse,
+  MFASetupResponse,
+  MFAStatus,
   Order,
   PlaceOrderRequest,
   Plan,
@@ -80,7 +83,24 @@ export const api = {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
+    }).then((r) => asJSON<LoginResponse>(r)),
+
+  loginMFA: (mfa_token: string, code: string) =>
+    fetch(`${BASE}/v1/auth/login/mfa`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mfa_token, code }),
     }).then((r) => asJSON<TokenPair>(r)),
+
+  mfaStatus: () => authedFetch(`/v1/me/mfa`).then((r) => asJSON<MFAStatus>(r)),
+  mfaSetup:  () =>
+    authedFetch(`/v1/me/mfa/totp/setup`, { method: "POST" }).then((r) => asJSON<MFASetupResponse>(r)),
+  mfaEnable: (code: string) =>
+    authedFetch(`/v1/me/mfa/totp/enable`, { method: "POST", body: JSON.stringify({ code }) })
+      .then((r) => { if (!r.ok) throw new Error(`${r.status}`); }),
+  mfaDisable: (code: string) =>
+    authedFetch(`/v1/me/mfa/totp/disable`, { method: "POST", body: JSON.stringify({ code }) })
+      .then((r) => { if (!r.ok) throw new Error(`${r.status}`); }),
 
   logout: async () => {
     const { refresh } = getAuth();
