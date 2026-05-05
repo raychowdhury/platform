@@ -60,11 +60,22 @@ func (r *Repo) GetMFASecret(ctx context.Context, userID uuid.UUID) (string, bool
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", false, nil
 	}
-	return secret, enabled, err
+	if err != nil {
+		return "", false, err
+	}
+	plain, derr := r.crypter.Decrypt(secret)
+	if derr != nil {
+		return "", false, derr
+	}
+	return plain, enabled, nil
 }
 
 func (r *Repo) UpsertPendingMFA(ctx context.Context, userID uuid.UUID, secret string) error {
-	_, err := r.db.Exec(ctx, `
+	stored, err := r.crypter.Encrypt(secret)
+	if err != nil {
+		return err
+	}
+	_, err = r.db.Exec(ctx, `
 		INSERT INTO user_mfa (user_id, totp_secret, enabled_at)
 		VALUES ($1, $2, NULL)
 		ON CONFLICT (user_id) DO UPDATE SET
@@ -72,7 +83,7 @@ func (r *Repo) UpsertPendingMFA(ctx context.Context, userID uuid.UUID, secret st
 			enabled_at  = NULL,
 			updated_at  = now()
 		WHERE user_mfa.enabled_at IS NULL
-	`, userID, secret)
+	`, userID, stored)
 	return err
 }
 

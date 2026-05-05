@@ -8,6 +8,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/platform/api/internal/crypter"
 )
 
 var (
@@ -16,10 +18,15 @@ var (
 )
 
 type Repo struct {
-	db *pgxpool.Pool
+	db      *pgxpool.Pool
+	crypter *crypter.Crypter // optional; nil = MFA secrets stored plaintext
 }
 
 func NewRepo(db *pgxpool.Pool) *Repo { return &Repo{db: db} }
+
+// WithCrypter wires envelope encryption for at-rest secrets (currently TOTP
+// seeds). Returns the same *Repo for fluent chaining.
+func (r *Repo) WithCrypter(c *crypter.Crypter) *Repo { r.crypter = c; return r }
 
 func (r *Repo) CreateUser(ctx context.Context, email, passwordHash string) (*User, error) {
 	u := &User{}

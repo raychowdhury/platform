@@ -20,6 +20,7 @@ import (
 	"github.com/platform/api/internal/auth"
 	"github.com/platform/api/internal/billing"
 	"github.com/platform/api/internal/config"
+	"github.com/platform/api/internal/crypter"
 	"github.com/platform/api/internal/drawings"
 	"github.com/platform/api/internal/entitlements"
 	"github.com/platform/api/internal/layouts"
@@ -77,7 +78,13 @@ func New(d Deps) http.Handler {
 	})
 
 	auditor := audit.NewRecorder(d.DB, d.Log)
-	repo := auth.NewRepo(d.DB)
+	cr, crErr := crypter.New(d.Cfg.TOTPKEK)
+	if crErr != nil {
+		// Surface but don't crash the boot path; auth.Repo treats nil crypter as
+		// "no encryption", which matches the dev default (TOTP_KEK unset).
+		d.Log.Error("totp crypter init failed; falling back to plaintext", "err", crErr)
+	}
+	repo := auth.NewRepo(d.DB).WithCrypter(cr)
 	issuer := auth.NewTokenIssuer(d.Cfg.JWTSecret, d.Cfg.JWTAccessTTL, d.Cfg.JWTRefreshTTL)
 	mail := mailer.New(d.Log, d.Cfg.SMTPAddr, d.Cfg.SMTPUsername, d.Cfg.SMTPPassword, d.Cfg.MailFrom)
 	svc := auth.NewService(repo, d.Redis, issuer, auditor, &authMailerAdapter{m: mail}, d.Cfg.WebBaseURL,

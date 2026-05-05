@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"strconv"
@@ -30,6 +31,7 @@ type Config struct {
 	SMTPPassword    string
 	MailFrom        string
 	WebBaseURL      string // used to build action links inside emails
+	TOTPKEK         []byte // 32-byte AES-256-GCM key for TOTP seed envelope; empty = plaintext (dev)
 }
 
 func Load() (*Config, error) {
@@ -55,6 +57,7 @@ func Load() (*Config, error) {
 		SMTPPassword:      envStr("SMTP_PASSWORD", ""),
 		MailFrom:          envStr("MAIL_FROM", "no-reply@platform.local"),
 		WebBaseURL:        envStr("WEB_BASE_URL", "http://localhost:5174"),
+		TOTPKEK:           decodeKEK(envStr("TOTP_KEK", "")),
 	}
 	if len(c.JWTSecret) < 32 {
 		return nil, fmt.Errorf("JWT_SECRET must be set and >=32 bytes")
@@ -76,6 +79,26 @@ func envInt(key string, def int) int {
 		}
 	}
 	return def
+}
+
+// decodeKEK accepts a base64 (std or URL-safe) 32-byte AES key. Empty input
+// disables encryption (returns nil), which keeps the dev path working without
+// any extra config.
+func decodeKEK(s string) []byte {
+	if s == "" {
+		return nil
+	}
+	for _, dec := range []func(string) ([]byte, error){
+		base64.StdEncoding.DecodeString,
+		base64.RawStdEncoding.DecodeString,
+		base64.URLEncoding.DecodeString,
+		base64.RawURLEncoding.DecodeString,
+	} {
+		if b, err := dec(s); err == nil && len(b) == 32 {
+			return b
+		}
+	}
+	return nil
 }
 
 func envDuration(key string, def time.Duration) time.Duration {
