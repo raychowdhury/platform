@@ -77,6 +77,15 @@ a:hover { text-decoration: underline; }
 
 .chart-host { width: 100%; height: 100%; }
 
+.chart-stack { display: flex; flex-direction: column; width: 100%; height: 100%; }
+.chart-stack .chart-host.main { flex: 1; min-height: 0; }
+.chart-stack .chart-host.osc {
+  height: 0; overflow: hidden;
+  border-top: 1px solid var(--border);
+}
+.chart-stack.with-osc .chart-host.osc { height: 160px; }
+.chart-cell.has-osc .chart-stack .chart-host.osc { height: 160px; }
+
 /* trading layout: topbar + (chart | sidebar) */
 .layout-trade {
   display: grid;

@@ -49,8 +49,8 @@ export interface StreamTick {
 export type Timeframe = "1m" | "5m" | "15m" | "30m" | "1h" | "4h" | "8h" | "1d" | "1w";
 
 export type OrderSide = "buy" | "sell";
-export type OrderType = "market" | "limit";
-export type OrderStatus = "open" | "filled" | "cancelled" | "rejected";
+export type OrderType = "market" | "limit" | "stop_market";
+export type OrderStatus = "open" | "pending" | "filled" | "cancelled" | "rejected";
 
 export interface Order {
   id: string;
@@ -60,9 +60,11 @@ export interface Order {
   side: OrderSide;
   type: OrderType;
   limit_price?: number;
+  stop_price?: number;
   qty: number;
   filled_qty: number;
   avg_fill_price?: number;
+  reserved_cost: number;
   status: OrderStatus;
   reject_reason?: string;
   created_at: string;
@@ -81,6 +83,8 @@ export interface Position {
 export interface Account {
   user_id: string;
   balance: number;
+  locked: number;
+  available: number;
   quote_currency: string;
   updated_at: string;
 }
@@ -91,6 +95,7 @@ export interface PlaceOrderRequest {
   type: OrderType;
   qty: number;
   limit_price?: number;
+  stop_price?: number;
   client_order_id?: string;
 }
 

@@ -15,8 +15,8 @@ import type {
   Timeframe,
 } from "../api/types";
 import { TF_SECONDS } from "../api/types";
-import Chart, { type CandleBar, type ChartHandle, type IndicatorKey } from "./Chart";
-import { ema, sma } from "./indicators";
+import Chart, { type CandleBar, type ChartHandle, type IndicatorKey, type OscillatorKey } from "./Chart";
+import { ema, macd as macdFn, rsi as rsiFn, sma } from "./indicators";
 import { useStream } from "./useStream";
 import Ticket from "../oms/Ticket";
 import PositionsPanel from "../oms/PositionsPanel";
@@ -53,6 +53,7 @@ export default function MarketPage() {
   const [prevClose, setPrevClose] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [active, setActive] = useState<Set<IndicatorKey>>(() => new Set(["ma20"]));
+  const [oscillator, setOscillator] = useState<OscillatorKey | null>(null);
 
   const [userId, setUserId] = useState<string | null>(null);
   const [account, setAccount] = useState<Account | null>(null);
@@ -126,6 +127,9 @@ export default function MarketPage() {
     window.setTimeout(() => setToast(null), 6000);
   });
 
+  const oscillatorRef = useRef(oscillator);
+  oscillatorRef.current = oscillator;
+
   const refreshIndicators = useCallback(() => {
     const handle = chartRef.current;
     if (!handle) return;
@@ -136,6 +140,14 @@ export default function MarketPage() {
       } else {
         handle.setIndicator(def.key, null);
       }
+    }
+    const osc = oscillatorRef.current;
+    if (osc === "rsi") {
+      handle.setOscillator("rsi", rsiFn(bars, 14));
+    } else if (osc === "macd") {
+      handle.setOscillator("macd", macdFn(bars, 12, 26, 9));
+    } else {
+      handle.setOscillator(null, null);
     }
   }, []);
 
@@ -167,7 +179,7 @@ export default function MarketPage() {
   }, [symbol, tf, refreshIndicators]);
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
-  useEffect(() => { refreshIndicators(); }, [active, refreshIndicators]);
+  useEffect(() => { refreshIndicators(); }, [active, oscillator, refreshIndicators]);
 
   const onTick = useCallback((t: StreamTick) => {
     // update mark for any symbol that streams (positions panel uses these)
@@ -297,10 +309,20 @@ export default function MarketPage() {
             </button>
           );
         })}
+        {(["rsi", "macd"] as OscillatorKey[]).map((k) => (
+          <button
+            key={k}
+            onClick={() => setOscillator((cur) => (cur === k ? null : k))}
+            style={{ opacity: oscillator === k ? 1 : 0.45 }}
+          >
+            {k.toUpperCase()}
+          </button>
+        ))}
         <span className="account-summary">
           {account != null ? (
             <>
-              <span className="muted small">cash</span> {account.balance.toFixed(2)}{" "}
+              <span className="muted small">avail</span> {account.available.toFixed(2)}{" "}
+              {account.locked > 0 && <><span className="muted small">locked</span> {account.locked.toFixed(2)}{" "}</>}
               {equity != null && <><span className="muted small">eq</span> {equity.toFixed(2)}</>}
             </>
           ) : "—"}
@@ -310,7 +332,7 @@ export default function MarketPage() {
         {err && <span className="error">{err}</span>}
         <button onClick={async () => { await api.logout(); clearAuth(); location.href = "/login"; }}>logout</button>
       </div>
-      <div className="chart-cell">
+      <div className={`chart-cell ${oscillator ? "has-osc" : ""}`}>
         <Chart onReady={onChartReady} />
       </div>
       <aside className="sidebar">
