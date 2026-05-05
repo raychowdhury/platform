@@ -6,6 +6,7 @@ import type {
   Account,
   Candle,
   Order,
+  Plan,
   Position,
   StreamTick,
   Subscription,
@@ -53,6 +54,7 @@ export default function MarketPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [account, setAccount] = useState<Account | null>(null);
   const [sub, setSub] = useState<Subscription | null>(null);
+  const [plans, setPlans] = useState<Plan[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const marksRef = useRef<Map<string, number>>(new Map());
@@ -63,7 +65,7 @@ export default function MarketPage() {
   const activeRef = useRef(active);
   activeRef.current = active;
 
-  // bootstrap symbol list
+  // bootstrap symbol list + plan catalog
   useEffect(() => {
     let cancelled = false;
     api.symbols()
@@ -73,8 +75,15 @@ export default function MarketPage() {
         if (s.length > 0) setSymbol((cur) => cur || s[0].symbol);
       })
       .catch((e) => setErr(String(e)));
+    api.listPlans().then((p) => { if (!cancelled) setPlans(p); }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
+
+  const currentPlan = useMemo(
+    () => plans.find((p) => p.code === sub?.plan_code) ?? null,
+    [plans, sub],
+  );
+  const maxIndicators = currentPlan?.max_indicators ?? 3;
 
   const refreshOms = useCallback(async () => {
     try {
@@ -131,6 +140,7 @@ export default function MarketPage() {
         high: c.high,
         low: c.low,
         close: c.close,
+        volume: c.volume,
       }));
       barsRef.current = bars;
       chartRef.current.setHistory(bars);
@@ -159,7 +169,11 @@ export default function MarketPage() {
     const last = bars[bars.length - 1];
     let next: CandleBar;
     if (!last || last.time !== bucket) {
-      next = { time: bucket, open: t.price, high: t.price, low: t.price, close: t.price };
+      next = {
+        time: bucket,
+        open: t.price, high: t.price, low: t.price, close: t.price,
+        volume: t.qty,
+      };
       bars.push(next);
     } else {
       next = {
@@ -168,6 +182,7 @@ export default function MarketPage() {
         high: Math.max(last.high, t.price),
         low: Math.min(last.low, t.price),
         close: t.price,
+        volume: (last.volume ?? 0) + t.qty,
       };
       bars[bars.length - 1] = next;
     }
@@ -203,10 +218,27 @@ export default function MarketPage() {
   const toggle = (key: IndicatorKey) => {
     setActive((cur) => {
       const next = new Set(cur);
-      if (next.has(key)) next.delete(key); else next.add(key);
+      if (next.has(key)) {
+        next.delete(key);
+        return next;
+      }
+      if (next.size >= maxIndicators) {
+        setErr(`Plan limit: ${maxIndicators} indicators max. Upgrade for more.`);
+        return cur;
+      }
+      next.add(key);
       return next;
     });
   };
+
+  // trim active set if a downgrade lowered the cap
+  useEffect(() => {
+    setActive((cur) => {
+      if (cur.size <= maxIndicators) return cur;
+      const arr = Array.from(cur).slice(0, maxIndicators);
+      return new Set(arr);
+    });
+  }, [maxIndicators]);
 
   const equity = useMemo(() => {
     if (!account) return null;
@@ -237,15 +269,21 @@ export default function MarketPage() {
         </span>
         <span className={`status ${status === "open" ? "live" : ""}`}>{status}</span>
         <span className="spacer" />
-        {INDICATOR_DEFS.map((d) => (
-          <button
-            key={d.key}
-            onClick={() => toggle(d.key)}
-            style={{ opacity: active.has(d.key) ? 1 : 0.45 }}
-          >
-            {d.label}
-          </button>
-        ))}
+        {INDICATOR_DEFS.map((d) => {
+          const on = active.has(d.key);
+          const blocked = !on && active.size >= maxIndicators;
+          return (
+            <button
+              key={d.key}
+              onClick={() => toggle(d.key)}
+              disabled={blocked}
+              title={blocked ? `Plan limit ${maxIndicators}` : ""}
+              style={{ opacity: on ? 1 : blocked ? 0.25 : 0.45 }}
+            >
+              {d.label}
+            </button>
+          );
+        })}
         <span className="account-summary">
           {account != null ? (
             <>

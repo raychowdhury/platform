@@ -1,19 +1,38 @@
 package market
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/platform/api/internal/entitlements"
 	"github.com/platform/api/internal/httputil"
+	mw "github.com/platform/api/internal/middleware"
 )
 
 type Handlers struct {
 	repo *Repo
+	ent  *entitlements.Provider
 }
 
-func NewHandlers(repo *Repo) *Handlers { return &Handlers{repo: repo} }
+func NewHandlers(repo *Repo, ent *entitlements.Provider) *Handlers {
+	return &Handlers{repo: repo, ent: ent}
+}
+
+// limitsFor returns the user's entitlements when the request is authenticated,
+// otherwise it returns a conservative free-tier shape (these endpoints may
+// also be reached unauthenticated for e.g. public symbols).
+func (h *Handlers) limitsFor(ctx context.Context) entitlements.Limits {
+	uid, ok := mw.UserID(ctx)
+	if !ok || uid == uuid.Nil || h.ent == nil {
+		return entitlements.Limits{HistoryDays: 7, MaxIndicators: 3, MaxAlerts: 5, MaxLayouts: 1}
+	}
+	return h.ent.ForUser(ctx, uid)
+}
 
 func (h *Handlers) ListSymbols(w http.ResponseWriter, r *http.Request) {
 	syms, err := h.repo.ListSymbols(r.Context())
@@ -57,6 +76,14 @@ func (h *Handlers) Candles(w http.ResponseWriter, r *http.Request) {
 		}
 		to = t
 	}
+
+	// plan-based history clamp
+	limits := h.limitsFor(r.Context())
+	earliest := to.Add(-time.Duration(limits.HistoryDays) * 24 * time.Hour)
+	if from.Before(earliest) {
+		from = earliest
+	}
+
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	candles, err := h.repo.Candles(r.Context(), symbol, tf, from, to, limit)
 	if err != nil {

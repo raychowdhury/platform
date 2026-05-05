@@ -89,6 +89,26 @@ func (r *Repo) UpsertSubscription(ctx context.Context, userID uuid.UUID, plan, s
 	return r.GetSubscription(ctx, userID)
 }
 
+// GetUserPlan resolves the active plan for a user, joining subscriptions to plans.
+// Falls back to the "free" plan if the user has no subscription row.
+func (r *Repo) GetUserPlan(ctx context.Context, userID uuid.UUID) (*Plan, error) {
+	var p Plan
+	err := r.db.QueryRow(ctx, `
+		SELECT p.code, p.name, p.price_cents, p.currency, p.interval, p.stripe_price_id,
+		       p.max_alerts, p.max_layouts, p.max_indicators, p.history_days, p.created_at
+		FROM subscriptions s
+		JOIN plans p ON p.code = s.plan_code
+		WHERE s.user_id = $1
+	`, userID).Scan(
+		&p.Code, &p.Name, &p.PriceCents, &p.Currency, &p.Interval, &p.StripePriceID,
+		&p.MaxAlerts, &p.MaxLayouts, &p.MaxIndicators, &p.HistoryDays, &p.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return r.GetPlan(ctx, "free")
+	}
+	return &p, err
+}
+
 // RecordEventOnce inserts an idempotency record. Returns true if inserted, false if already seen.
 func (r *Repo) RecordEventOnce(ctx context.Context, eventID, eventType string, payload []byte) (bool, error) {
 	tag, err := r.db.Exec(ctx, `

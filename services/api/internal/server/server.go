@@ -17,6 +17,7 @@ import (
 	"github.com/platform/api/internal/auth"
 	"github.com/platform/api/internal/billing"
 	"github.com/platform/api/internal/config"
+	"github.com/platform/api/internal/entitlements"
 	"github.com/platform/api/internal/market"
 	mw "github.com/platform/api/internal/middleware"
 	"github.com/platform/api/internal/oms"
@@ -107,8 +108,11 @@ func New(d Deps) http.Handler {
 		r.Post("/mfa/totp/disable", h.MFADisable(uidFromCtx))
 	})
 
+	billingRepo := billing.NewRepo(d.DB)
+	ent := entitlements.New(billingRepo)
+
 	mktRepo := market.NewRepo(d.DB)
-	mktH := market.NewHandlers(mktRepo)
+	mktH := market.NewHandlers(mktRepo, ent)
 	wsGW := market.NewWSGateway(d.Redis, d.Log, issuer)
 
 	r.Route("/v1/market", func(r chi.Router) {
@@ -135,7 +139,6 @@ func New(d Deps) http.Handler {
 	})
 
 	// Billing
-	billingRepo := billing.NewRepo(d.DB)
 	billingSvc := billing.NewService(billingRepo, d.Cfg.StripeSecretKey, d.Cfg.BillingSuccessURL, d.Cfg.BillingCancelURL)
 	billingH := billing.NewHandlers(billingSvc)
 

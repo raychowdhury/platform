@@ -7,6 +7,7 @@ import {
   type IChartApi,
   type ISeriesApi,
   type CandlestickData,
+  type HistogramData,
   type LineData,
   type Time,
   type UTCTimestamp,
@@ -19,6 +20,7 @@ export interface CandleBar {
   high: number;
   low: number;
   close: number;
+  volume?: number;
 }
 
 export type IndicatorKey = "ma20" | "ma50" | "ema12" | "ema26";
@@ -67,6 +69,18 @@ export default function Chart({ onReady }: Props) {
       borderVisible: false,
     });
 
+    // Volume histogram lives on its own overlay price scale, sized to the
+    // bottom 20% of the chart so it doesn't squash the candles.
+    const volume = chart.addHistogramSeries({
+      priceFormat: { type: "volume" },
+      priceScaleId: "volume",
+      color: "#26a69a55",
+    });
+    chart.priceScale("volume").applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 },
+      borderVisible: false,
+    });
+
     const indicatorSeries = new Map<IndicatorKey, ISeriesApi<"Line">>();
 
     onReady({
@@ -79,6 +93,12 @@ export default function Chart({ onReady }: Props) {
           close: b.close,
         }));
         candles.setData(data);
+        const vol: HistogramData<Time>[] = bars.map((b) => ({
+          time: b.time as UTCTimestamp,
+          value: b.volume ?? 0,
+          color: b.close >= b.open ? "#26a69a55" : "#ef535055",
+        }));
+        volume.setData(vol);
         chart.timeScale().fitContent();
       },
       upsertBar: (b) => {
@@ -88,6 +108,11 @@ export default function Chart({ onReady }: Props) {
           high: b.high,
           low: b.low,
           close: b.close,
+        });
+        volume.update({
+          time: b.time as UTCTimestamp,
+          value: b.volume ?? 0,
+          color: b.close >= b.open ? "#26a69a55" : "#ef535055",
         });
       },
       setIndicator: (key, points) => {
