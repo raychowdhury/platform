@@ -1,5 +1,14 @@
 import { getAuth, useAuth } from "../auth/store";
-import type { Candle, Symbol as SymbolMeta, TokenPair, User } from "./types";
+import type {
+  Account,
+  Candle,
+  Order,
+  PlaceOrderRequest,
+  Position,
+  Symbol as SymbolMeta,
+  TokenPair,
+  User,
+} from "./types";
 
 const BASE = ""; // same-origin via Vite proxy / nginx pass-through
 
@@ -90,4 +99,23 @@ export const api = {
     if (to) q.set("to", to.toISOString());
     return authedFetch(`/v1/market/candles?${q}`).then((r) => asJSON<Candle[]>(r));
   },
+
+  account: () => authedFetch(`/v1/account`).then((r) => asJSON<Account>(r)),
+
+  positions: () => authedFetch(`/v1/positions`).then((r) => asJSON<Position[]>(r)),
+
+  orders: (status?: string, limit = 50) => {
+    const q = new URLSearchParams({ limit: String(limit) });
+    if (status) q.set("status", status);
+    return authedFetch(`/v1/orders?${q}`).then((r) => asJSON<Order[]>(r));
+  },
+
+  placeOrder: (req: PlaceOrderRequest) =>
+    authedFetch(`/v1/orders`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    }).then((r) => asJSON<Order>(r)),
+
+  cancelOrder: (id: string) =>
+    authedFetch(`/v1/orders/${id}`, { method: "DELETE" }).then((r) => asJSON<Order>(r)),
 };

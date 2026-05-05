@@ -18,13 +18,15 @@ import (
 	"github.com/platform/api/internal/config"
 	"github.com/platform/api/internal/market"
 	mw "github.com/platform/api/internal/middleware"
+	"github.com/platform/api/internal/oms"
 )
 
 type Deps struct {
-	Cfg   *config.Config
-	Log   *slog.Logger
-	DB    *pgxpool.Pool
-	Redis *redis.Client
+	Cfg    *config.Config
+	Log    *slog.Logger
+	DB     *pgxpool.Pool
+	Redis  *redis.Client
+	Engine *oms.Engine
 }
 
 func New(d Deps) http.Handler {
@@ -110,6 +112,21 @@ func New(d Deps) http.Handler {
 	})
 
 	r.Get("/v1/stream", wsGW.Handle)
+
+	omsRepo := oms.NewRepo(d.DB)
+	omsSvc := oms.NewService(omsRepo, d.Engine)
+	omsH := oms.NewHandlers(omsSvc)
+
+	r.Route("/v1", func(r chi.Router) {
+		r.Use(requireAuth)
+		r.Post("/orders", omsH.Place(uidFromCtx))
+		r.Get("/orders", omsH.ListOrders(uidFromCtx))
+		r.Get("/orders/{id}", omsH.GetOrder(uidFromCtx))
+		r.Delete("/orders/{id}", omsH.Cancel(uidFromCtx))
+		r.Get("/fills", omsH.ListFills(uidFromCtx))
+		r.Get("/positions", omsH.ListPositions(uidFromCtx))
+		r.Get("/account", omsH.GetAccount(uidFromCtx))
+	})
 
 	return r
 }

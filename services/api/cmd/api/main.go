@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/platform/api/internal/config"
+	"github.com/platform/api/internal/oms"
 	"github.com/platform/api/internal/server"
 	"github.com/platform/api/internal/storage"
 )
@@ -50,7 +51,14 @@ func main() {
 	}
 	defer func() { _ = rdb.Close() }()
 
-	handler := server.New(server.Deps{Cfg: cfg, Log: log, DB: pg.Pool, Redis: rdb})
+	engine := oms.NewEngine(pg.Pool, rdb, log)
+	go func() {
+		if err := engine.Run(rootCtx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Error("oms engine", "err", err)
+		}
+	}()
+
+	handler := server.New(server.Deps{Cfg: cfg, Log: log, DB: pg.Pool, Redis: rdb, Engine: engine})
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,

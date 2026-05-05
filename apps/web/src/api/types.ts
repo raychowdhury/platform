@@ -48,6 +48,52 @@ export interface StreamTick {
 
 export type Timeframe = "1m" | "5m" | "15m" | "30m" | "1h" | "4h" | "8h" | "1d" | "1w";
 
+export type OrderSide = "buy" | "sell";
+export type OrderType = "market" | "limit";
+export type OrderStatus = "open" | "filled" | "cancelled" | "rejected";
+
+export interface Order {
+  id: string;
+  user_id: string;
+  client_order_id?: string;
+  symbol: string;
+  side: OrderSide;
+  type: OrderType;
+  limit_price?: number;
+  qty: number;
+  filled_qty: number;
+  avg_fill_price?: number;
+  status: OrderStatus;
+  reject_reason?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Position {
+  user_id: string;
+  symbol: string;
+  qty: number;
+  avg_cost: number;
+  realized_pnl: number;
+  updated_at: string;
+}
+
+export interface Account {
+  user_id: string;
+  balance: number;
+  quote_currency: string;
+  updated_at: string;
+}
+
+export interface PlaceOrderRequest {
+  symbol: string;
+  side: OrderSide;
+  type: OrderType;
+  qty: number;
+  limit_price?: number;
+  client_order_id?: string;
+}
+
 export const TF_SECONDS: Record<Timeframe, number> = {
   "1m": 60,
   "5m": 300,

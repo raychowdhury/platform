@@ -76,3 +76,56 @@ a:hover { text-decoration: underline; }
 }
 
 .chart-host { width: 100%; height: 100%; }
+
+/* trading layout: topbar + (chart | sidebar) */
+.layout-trade {
+  display: grid;
+  grid-template-rows: 48px 1fr;
+  grid-template-columns: 1fr 320px;
+  grid-template-areas:
+    "topbar topbar"
+    "chart sidebar";
+  height: 100vh;
+}
+.layout-trade .topbar { grid-area: topbar; }
+.layout-trade .chart-cell { grid-area: chart; min-width: 0; }
+.layout-trade .sidebar {
+  grid-area: sidebar;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.account-summary { font-variant-numeric: tabular-nums; font-size: 13px; }
+.account-summary .muted { margin-right: 4px; }
+.small { font-size: 12px; }
+
+/* OMS panels */
+.panel { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.panel-title { font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); margin-bottom: 10px; }
+.panel .empty { padding: 8px 0; }
+
+.ticket .seg { display: flex; gap: 4px; margin-bottom: 12px; }
+.ticket .seg button {
+  flex: 1; padding: 6px 0; background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font: inherit;
+}
+.ticket .seg .seg-on { background: #2a2e39; border-color: #3a3f4d; }
+.ticket .seg .seg-on.buy  { background: #1b3d2f; color: #26a69a; border-color: #26a69a; }
+.ticket .seg .seg-on.sell { background: #3d1b1f; color: #ef5350; border-color: #ef5350; }
+.ticket .field label { display: flex; justify-content: space-between; align-items: center; }
+.ticket .btn-buy  { background: #26a69a; }
+.ticket .btn-sell { background: #ef5350; }
+.link {
+  background: transparent !important; color: var(--accent) !important; border: none !important;
+  padding: 0 !important; width: auto !important; font-size: 12px !important; text-decoration: underline; cursor: pointer;
+}
+
+/* tables */
+.oms-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.oms-table th, .oms-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #181b25; }
+.oms-table th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 10px; }
+.oms-table td.up,   .oms-table .up   { color: #26a69a; }
+.oms-table td.down, .oms-table .down { color: #ef5350; }

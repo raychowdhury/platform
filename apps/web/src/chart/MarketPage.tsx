@@ -1,11 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/store";
-import type { Candle, StreamTick, Symbol as SymbolMeta, Timeframe } from "../api/types";
+import type {
+  Account,
+  Candle,
+  Order,
+  Position,
+  StreamTick,
+  Symbol as SymbolMeta,
+  Timeframe,
+} from "../api/types";
 import { TF_SECONDS } from "../api/types";
 import Chart, { type CandleBar, type ChartHandle, type IndicatorKey } from "./Chart";
 import { ema, sma } from "./indicators";
 import { useStream } from "./useStream";
+import Ticket from "../oms/Ticket";
+import PositionsPanel from "../oms/PositionsPanel";
+import OrdersPanel from "../oms/OrdersPanel";
 
 const TFS: Timeframe[] = ["1m", "5m", "15m", "30m", "1h", "4h", "8h", "1d", "1w"];
 
@@ -36,6 +47,12 @@ export default function MarketPage() {
   const [err, setErr] = useState<string | null>(null);
   const [active, setActive] = useState<Set<IndicatorKey>>(() => new Set(["ma20"]));
 
+  const [account, setAccount] = useState<Account | null>(null);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const marksRef = useRef<Map<string, number>>(new Map());
+  const [marks, setMarks] = useState<Map<string, number>>(new Map());
+
   const chartRef = useRef<ChartHandle | null>(null);
   const barsRef = useRef<CandleBar[]>([]);
   const activeRef = useRef(active);
@@ -53,6 +70,25 @@ export default function MarketPage() {
       .catch((e) => setErr(String(e)));
     return () => { cancelled = true; };
   }, []);
+
+  const refreshOms = useCallback(async () => {
+    try {
+      const [a, p, o] = await Promise.all([api.account(), api.positions(), api.orders(undefined, 50)]);
+      setAccount(a);
+      setPositions(p);
+      setOrders(o);
+    } catch (e: unknown) {
+      // surface but don't crash UI
+      console.warn("oms refresh", e);
+    }
+  }, []);
+
+  // poll OMS state every 2s
+  useEffect(() => {
+    refreshOms();
+    const t = window.setInterval(refreshOms, 2000);
+    return () => window.clearInterval(t);
+  }, [refreshOms]);
 
   const refreshIndicators = useCallback(() => {
     const handle = chartRef.current;
@@ -73,7 +109,6 @@ export default function MarketPage() {
       setErr(null);
       const to = new Date();
       const tfSec = TF_SECONDS[tf];
-      // pull enough history for slowest TF + indicator lookback (~500 bars worth)
       const from = new Date(to.getTime() - tfSec * 500 * 1000);
       const candles = await api.candles(symbol, tf, from, to, 500);
       const bars: CandleBar[] = candles.map((c: Candle) => ({
@@ -95,11 +130,13 @@ export default function MarketPage() {
   }, [symbol, tf, refreshIndicators]);
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
-
-  // recompute indicators when toggles change (no need to refetch history)
   useEffect(() => { refreshIndicators(); }, [active, refreshIndicators]);
 
   const onTick = useCallback((t: StreamTick) => {
+    // update mark for any symbol that streams (positions panel uses these)
+    marksRef.current.set(t.symbol, t.price);
+
+    if (t.symbol !== symbol) return;
     const handle = chartRef.current;
     if (!handle) return;
     const tfSec = TF_SECONDS[tf];
@@ -122,11 +159,20 @@ export default function MarketPage() {
     }
     handle.upsertBar(next);
     setLastPrice(t.price);
-    // recompute indicators incrementally — cheap for ≤500 bars
     refreshIndicators();
-  }, [tf, refreshIndicators]);
+  }, [tf, symbol, refreshIndicators]);
 
   useStream(symbol, onTick, setStatus);
+
+  // also subscribe to all position symbols for marks (when different from chart symbol)
+  // For MVP: marks come from whatever streams in via the active chart sub.
+  // Refresh `marks` state every 1s to drive PositionsPanel re-render.
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      setMarks(new Map(marksRef.current));
+    }, 1000);
+    return () => window.clearInterval(t);
+  }, []);
 
   const dir: "up" | "down" | undefined = useMemo(() => {
     if (lastPrice == null || prevClose == null) return undefined;
@@ -148,8 +194,18 @@ export default function MarketPage() {
     });
   };
 
+  const equity = useMemo(() => {
+    if (!account) return null;
+    let mtm = 0;
+    for (const p of positions) {
+      const m = marks.get(p.symbol) ?? p.avg_cost;
+      mtm += p.qty * m;
+    }
+    return account.balance + mtm;
+  }, [account, positions, marks]);
+
   return (
-    <div className="layout">
+    <div className="layout-trade">
       <div className="topbar">
         <strong>Platform</strong>
         <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
@@ -176,10 +232,25 @@ export default function MarketPage() {
             {d.label}
           </button>
         ))}
+        <span className="account-summary">
+          {account != null ? (
+            <>
+              <span className="muted small">cash</span> {account.balance.toFixed(2)}{" "}
+              {equity != null && <><span className="muted small">eq</span> {equity.toFixed(2)}</>}
+            </>
+          ) : "—"}
+        </span>
         {err && <span className="error">{err}</span>}
         <button onClick={async () => { await api.logout(); clearAuth(); location.href = "/login"; }}>logout</button>
       </div>
-      <Chart onReady={onChartReady} />
+      <div className="chart-cell">
+        <Chart onReady={onChartReady} />
+      </div>
+      <aside className="sidebar">
+        <Ticket symbol={symbol} lastPrice={lastPrice} onPlaced={refreshOms} />
+        <PositionsPanel positions={positions} marks={marks} />
+        <OrdersPanel orders={orders} onChanged={refreshOms} />
+      </aside>
     </div>
   );
 }
