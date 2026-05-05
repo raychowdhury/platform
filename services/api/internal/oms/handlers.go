@@ -26,6 +26,7 @@ type placeReq struct {
 	Side          string   `json:"side"`
 	Type          string   `json:"type"`
 	LimitPrice    *float64 `json:"limit_price,omitempty"`
+	StopPrice     *float64 `json:"stop_price,omitempty"`
 	Qty           float64  `json:"qty"`
 }
 
@@ -42,6 +43,7 @@ func (h *Handlers) Place(uid uidProvider) http.HandlerFunc {
 			Side:          Side(strings.ToLower(req.Side)),
 			Type:          Type(strings.ToLower(req.Type)),
 			LimitPrice:    req.LimitPrice,
+			StopPrice:     req.StopPrice,
 			Qty:           req.Qty,
 			ClientOrderID: req.ClientOrderID,
 		})
@@ -153,8 +155,13 @@ func statusFor(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, ErrInvalidSide), errors.Is(err, ErrInvalidType),
 		errors.Is(err, ErrLimitPriceMissing), errors.Is(err, ErrLimitPriceUnused),
+		errors.Is(err, ErrStopPriceMissing),
 		errors.Is(err, ErrInvalidQty), errors.Is(err, ErrSymbolRequired):
 		return http.StatusBadRequest
+	case errors.Is(err, ErrInsufficientFunds):
+		return http.StatusPaymentRequired
+	case errors.Is(err, ErrNoMarkPrice):
+		return http.StatusServiceUnavailable
 	default:
 		return http.StatusInternalServerError
 	}

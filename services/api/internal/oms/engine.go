@@ -14,11 +14,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Engine matches open orders against ticks streamed from ingest via Redis pub/sub.
-//
-// Single-process matcher; if api scales horizontally a distributed lock is needed.
-// Fills are computed at tick price (no price improvement modeling), full-quantity
-// only (no partial fills since paper engine has no order book).
 type Engine struct {
 	db  *pgxpool.Pool
 	rdb *redis.Client
@@ -28,6 +23,7 @@ type Engine struct {
 
 	mu     sync.Mutex
 	active map[string]struct{}
+	marks  map[string]float64 // last price per symbol
 }
 
 func NewEngine(db *pgxpool.Pool, rdb *redis.Client, log *slog.Logger) *Engine {
@@ -35,8 +31,9 @@ func NewEngine(db *pgxpool.Pool, rdb *redis.Client, log *slog.Logger) *Engine {
 		db:      db,
 		rdb:     rdb,
 		log:     log,
-		feeRate: 0.001, // 10 bps taker
+		feeRate: 0.001,
 		active:  map[string]struct{}{},
+		marks:   map[string]float64{},
 	}
 }
 
@@ -59,7 +56,21 @@ func (e *Engine) isActive(symbol string) bool {
 	return ok
 }
 
-// tickMsg is the on-the-wire form ingest publishes on "ticks:<SYMBOL>".
+// LastPrice returns the most recent tick price for a symbol observed by the engine.
+// Returns 0, false if no tick has been seen yet.
+func (e *Engine) LastPrice(symbol string) (float64, bool) {
+	e.mu.Lock()
+	v, ok := e.marks[symbol]
+	e.mu.Unlock()
+	return v, ok
+}
+
+func (e *Engine) recordMark(symbol string, price float64) {
+	e.mu.Lock()
+	e.marks[symbol] = price
+	e.mu.Unlock()
+}
+
 type tickMsg struct {
 	Symbol  string  `json:"symbol"`
 	TradeID int64   `json:"trade_id"`
@@ -92,18 +103,19 @@ func (e *Engine) Run(ctx context.Context) error {
 			if err := json.Unmarshal([]byte(msg.Payload), &t); err != nil {
 				continue
 			}
+			e.recordMark(t.Symbol, t.Price)
 			if !e.isActive(t.Symbol) {
 				continue
 			}
-			if err := e.matchSymbol(ctx, t); err != nil {
-				e.log.Warn("match symbol", "symbol", t.Symbol, "err", err)
+			if err := e.processSymbol(ctx, t); err != nil {
+				e.log.Warn("process symbol", "symbol", t.Symbol, "err", err)
 			}
 		}
 	}
 }
 
 func (e *Engine) bootstrapActive(ctx context.Context) error {
-	rows, err := e.db.Query(ctx, `SELECT DISTINCT symbol FROM orders WHERE status = 'open'`)
+	rows, err := e.db.Query(ctx, `SELECT DISTINCT symbol FROM orders WHERE status IN ('open','pending')`)
 	if err != nil {
 		return err
 	}
@@ -129,16 +141,24 @@ func (e *Engine) snapshotActive() []string {
 }
 
 type orderRow struct {
-	ID         uuid.UUID
-	UserID     uuid.UUID
-	Side       Side
-	Type       Type
-	LimitPrice *float64
-	Qty        float64
-	FilledQty  float64
+	ID           uuid.UUID
+	UserID       uuid.UUID
+	Side         Side
+	Type         Type
+	LimitPrice   *float64
+	StopPrice    *float64
+	Qty          float64
+	FilledQty    float64
+	ReservedCost float64
+	Status       Status
 }
 
-func (e *Engine) matchSymbol(ctx context.Context, t tickMsg) error {
+// processSymbol pulls all not-final orders for a symbol, then:
+//   - flips pending stop orders to open if their trigger crossed
+//   - matches open orders against the current tick
+//
+// Each step is atomic via row-level locks; everything happens in one tx.
+func (e *Engine) processSymbol(ctx context.Context, t tickMsg) error {
 	tx, err := e.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return err
@@ -146,9 +166,10 @@ func (e *Engine) matchSymbol(ctx context.Context, t tickMsg) error {
 	defer tx.Rollback(ctx)
 
 	rows, err := tx.Query(ctx, `
-		SELECT id, user_id, side, type, limit_price, qty::float8, filled_qty::float8
+		SELECT id, user_id, side, type, limit_price, stop_price,
+		       qty::float8, filled_qty::float8, reserved_cost::float8, status
 		FROM orders
-		WHERE symbol = $1 AND status = 'open'
+		WHERE symbol = $1 AND status IN ('open','pending')
 		ORDER BY created_at
 		FOR UPDATE SKIP LOCKED
 	`, t.Symbol)
@@ -158,51 +179,85 @@ func (e *Engine) matchSymbol(ctx context.Context, t tickMsg) error {
 	var candidates []orderRow
 	for rows.Next() {
 		var o orderRow
-		var lp *float64
-		if err := rows.Scan(&o.ID, &o.UserID, &o.Side, &o.Type, &lp, &o.Qty, &o.FilledQty); err != nil {
+		var lp, sp *float64
+		if err := rows.Scan(&o.ID, &o.UserID, &o.Side, &o.Type, &lp, &sp,
+			&o.Qty, &o.FilledQty, &o.ReservedCost, &o.Status); err != nil {
 			rows.Close()
 			return err
 		}
 		o.LimitPrice = lp
+		o.StopPrice = sp
 		candidates = append(candidates, o)
 	}
 	rows.Close()
 
 	if len(candidates) == 0 {
-		// no open orders for this symbol — drop from active set
 		e.markInactive(t.Symbol)
 		return tx.Commit(ctx)
 	}
 
-	matchedAny := false
 	for i := range candidates {
 		o := &candidates[i]
+		if o.Status == StatusPending {
+			if !stopTriggered(o, t.Price) {
+				continue
+			}
+			if err := triggerStop(ctx, tx, o.ID); err != nil {
+				e.log.Warn("trigger stop", "order", o.ID, "err", err)
+				continue
+			}
+			o.Status = StatusOpen
+		}
+		if o.Status != StatusOpen {
+			continue
+		}
 		if !shouldMatch(o, t.Price) {
 			continue
 		}
-		matchedAny = true
 		if err := e.fillOne(ctx, tx, t, o); err != nil {
 			e.log.Warn("fillOne", "order", o.ID, "err", err)
 		}
 	}
-	if !matchedAny {
-		// no fills this tick; commit no-op tx (releases locks)
-	}
 	return tx.Commit(ctx)
 }
 
-func shouldMatch(o *orderRow, tickPrice float64) bool {
-	if o.Type == Market {
-		return true
-	}
-	if o.LimitPrice == nil {
+func stopTriggered(o *orderRow, tickPrice float64) bool {
+	if o.Type != StopMarket || o.StopPrice == nil {
 		return false
 	}
 	switch o.Side {
 	case Buy:
-		return tickPrice <= *o.LimitPrice
+		// Buy stop: trigger when price rises through stop.
+		return tickPrice >= *o.StopPrice
 	case Sell:
-		return tickPrice >= *o.LimitPrice
+		// Sell stop: trigger when price falls through stop.
+		return tickPrice <= *o.StopPrice
+	}
+	return false
+}
+
+func triggerStop(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE orders SET status = 'open', updated_at = now()
+		WHERE id = $1 AND status = 'pending'
+	`, id)
+	return err
+}
+
+func shouldMatch(o *orderRow, tickPrice float64) bool {
+	switch o.Type {
+	case Market, StopMarket:
+		return true
+	case Limit:
+		if o.LimitPrice == nil {
+			return false
+		}
+		switch o.Side {
+		case Buy:
+			return tickPrice <= *o.LimitPrice
+		case Sell:
+			return tickPrice >= *o.LimitPrice
+		}
 	}
 	return false
 }
@@ -217,23 +272,20 @@ func (e *Engine) fillOne(ctx context.Context, tx pgx.Tx, t tickMsg, o *orderRow)
 
 	if o.Side == Buy {
 		cost := fillPrice*fillQty + fee
-		var bal float64
-		if err := tx.QueryRow(ctx,
-			`SELECT balance::float8 FROM accounts WHERE user_id = $1 FOR UPDATE`,
-			o.UserID,
-		).Scan(&bal); err != nil {
+		// Settle: deduct cost from balance, release any reserved leftover back to balance,
+		// and remove the entire reservation from `locked`.
+		// If reserved_cost < cost (e.g. market order with insufficient buffer): reject.
+		if o.ReservedCost+1e-8 < cost {
+			return e.rejectAndRelease(ctx, tx, o, "insufficient reserved balance")
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE accounts
+			SET balance = balance - $1, locked = locked - $2, updated_at = now()
+			WHERE user_id = $3
+		`, cost, o.ReservedCost, o.UserID); err != nil {
 			return err
 		}
-		if bal < cost {
-			return rejectOrder(ctx, tx, o.ID, "insufficient balance")
-		}
-		if _, err := tx.Exec(ctx,
-			`UPDATE accounts SET balance = balance - $1, updated_at = now() WHERE user_id = $2`,
-			cost, o.UserID,
-		); err != nil {
-			return err
-		}
-		// position upsert: weighted avg cost
+		// position upsert
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO positions (user_id, symbol, qty, avg_cost)
 			VALUES ($1, $2, $3, $4)
@@ -245,14 +297,14 @@ func (e *Engine) fillOne(ctx context.Context, tx pgx.Tx, t tickMsg, o *orderRow)
 		`, o.UserID, t.Symbol, fillQty, fillPrice); err != nil {
 			return err
 		}
-	} else { // sell (long-only)
+	} else { // sell — paper engine: live qty check at fill time, no per-order qty reservation
 		var posQty, avgCost float64
 		err := tx.QueryRow(ctx, `
 			SELECT qty::float8, avg_cost::float8
 			FROM positions WHERE user_id = $1 AND symbol = $2 FOR UPDATE
 		`, o.UserID, t.Symbol).Scan(&posQty, &avgCost)
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && posQty < fillQty) {
-			return rejectOrder(ctx, tx, o.ID, "insufficient position")
+			return e.rejectAndRelease(ctx, tx, o, "insufficient position")
 		}
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
@@ -283,13 +335,13 @@ func (e *Engine) fillOne(ctx context.Context, tx pgx.Tx, t tickMsg, o *orderRow)
 
 	if _, err := tx.Exec(ctx, `
 		UPDATE orders
-		SET filled_qty = qty, avg_fill_price = $1, status = 'filled', updated_at = now()
+		SET filled_qty = qty, avg_fill_price = $1, status = 'filled',
+		    reserved_cost = 0, updated_at = now()
 		WHERE id = $2
 	`, fillPrice, o.ID); err != nil {
 		return err
 	}
 
-	// fire-and-forget event for future WS push
 	payload, _ := json.Marshal(map[string]any{
 		"type":     "fill",
 		"order_id": o.ID,
@@ -305,11 +357,20 @@ func (e *Engine) fillOne(ctx context.Context, tx pgx.Tx, t tickMsg, o *orderRow)
 	return nil
 }
 
-func rejectOrder(ctx context.Context, tx pgx.Tx, id uuid.UUID, reason string) error {
+// rejectAndRelease flips the order to rejected and refunds any reserved cost.
+func (e *Engine) rejectAndRelease(ctx context.Context, tx pgx.Tx, o *orderRow, reason string) error {
+	if o.Side == Buy && o.ReservedCost > 0 {
+		if _, err := tx.Exec(ctx, `
+			UPDATE accounts SET locked = locked - $1, updated_at = now()
+			WHERE user_id = $2
+		`, o.ReservedCost, o.UserID); err != nil {
+			return err
+		}
+	}
 	_, err := tx.Exec(ctx, `
 		UPDATE orders
-		SET status = 'rejected', reject_reason = $1, updated_at = now()
+		SET status = 'rejected', reject_reason = $1, reserved_cost = 0, updated_at = now()
 		WHERE id = $2
-	`, reason, id)
+	`, reason, o.ID)
 	return err
 }

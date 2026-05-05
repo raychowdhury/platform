@@ -14,10 +14,12 @@ const (
 	Buy  Side = "buy"
 	Sell Side = "sell"
 
-	Market Type = "market"
-	Limit  Type = "limit"
+	Market     Type = "market"
+	Limit      Type = "limit"
+	StopMarket Type = "stop_market"
 
 	StatusOpen      Status = "open"
+	StatusPending   Status = "pending"
 	StatusFilled    Status = "filled"
 	StatusCancelled Status = "cancelled"
 	StatusRejected  Status = "rejected"
@@ -31,9 +33,11 @@ type Order struct {
 	Side          Side      `json:"side"`
 	Type          Type      `json:"type"`
 	LimitPrice    *float64  `json:"limit_price,omitempty"`
+	StopPrice     *float64  `json:"stop_price,omitempty"`
 	Qty           float64   `json:"qty"`
 	FilledQty     float64   `json:"filled_qty"`
 	AvgFillPrice  *float64  `json:"avg_fill_price,omitempty"`
+	ReservedCost  float64   `json:"reserved_cost"`
 	Status        Status    `json:"status"`
 	RejectReason  *string   `json:"reject_reason,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
@@ -64,6 +68,8 @@ type Position struct {
 type Account struct {
 	UserID        uuid.UUID `json:"user_id"`
 	Balance       float64   `json:"balance"`
+	Locked        float64   `json:"locked"`
+	Available     float64   `json:"available"`
 	QuoteCurrency string    `json:"quote_currency"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
