@@ -162,8 +162,9 @@ func New(d Deps) http.Handler {
 	})
 
 	// Billing
-	billingSvc := billing.NewService(billingRepo, d.Cfg.StripeSecretKey, d.Cfg.BillingSuccessURL, d.Cfg.BillingCancelURL)
-	billingH := billing.NewHandlers(billingSvc)
+	billingSvc := billing.NewService(billingRepo, d.Cfg.StripeSecretKey, d.Cfg.StripeWebhookSecret,
+		d.Cfg.BillingSuccessURL, d.Cfg.BillingCancelURL)
+	billingH := billing.NewHandlers(billingSvc, &billingUserAdapter{repo: repo})
 
 	r.Get("/v1/plans", billingH.ListPlans)
 
@@ -233,17 +234,17 @@ func New(d Deps) http.Handler {
 	})
 
 	r.Route("/v1/billing", func(r chi.Router) {
-		// Webhook is public (Stripe calls it). Even when unconfigured we accept
-		// the request and respond 501 so callers can detect mode.
-		r.Post("/webhook", billingH.WebhookPlaceholder)
+		// Webhook is public (Stripe calls it). Signature verification + idempotency
+		// happen inside the handler.
+		r.Post("/webhook", billingH.Webhook)
 
 		// Authenticated billing actions.
 		r.Group(func(r chi.Router) {
 			r.Use(requireAuth)
 			r.Get("/subscription", billingH.MySubscription(uidFromCtx))
 			if billingSvc.StripeEnabled() {
-				r.Post("/checkout", billingH.CheckoutPlaceholder)
-				r.Post("/portal",   billingH.PortalPlaceholder)
+				r.Post("/checkout", billingH.Checkout(uidFromCtx))
+				r.Post("/portal", billingH.Portal(uidFromCtx))
 			} else {
 				r.Post("/upgrade", billingH.DevUpgrade(uidFromCtx))
 			}
@@ -260,6 +261,18 @@ type authMailerAdapter struct{ m mailer.Mailer }
 
 func (a *authMailerAdapter) Send(ctx context.Context, msg auth.MailMessage) error {
 	return a.m.Send(ctx, mailer.Message{To: msg.To, Subject: msg.Subject, Body: msg.Body})
+}
+
+// billingUserAdapter exposes a tiny user-email lookup to the billing package
+// without forcing a billing→auth import.
+type billingUserAdapter struct{ repo *auth.Repo }
+
+func (b *billingUserAdapter) Email(ctx context.Context, id uuid.UUID) (string, error) {
+	u, err := b.repo.GetUserByID(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	return u.Email, nil
 }
 
 // apiKeyResolverAdapter bridges apikeys.Repo to mw.APIKeyResolver. The two

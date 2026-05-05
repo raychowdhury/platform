@@ -49,6 +49,13 @@ services:
       JWT_SECRET: "${JWT_SECRET:-dev_secret_change_me_at_least_32_bytes_long}"
       JWT_ACCESS_TTL: "${JWT_ACCESS_TTL:-15m}"
       JWT_REFRESH_TTL: "${JWT_REFRESH_TTL:-720h}"
+      STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY:-}"
+      STRIPE_WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET:-}"
+      SMTP_ADDR: "${SMTP_ADDR:-}"
+      SMTP_USERNAME: "${SMTP_USERNAME:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+      MAIL_FROM: "${MAIL_FROM:-no-reply@platform.local}"
+      WEB_BASE_URL: "${WEB_BASE_URL:-http://localhost:5174}"
     ports:
       - "${API_PORT:-8080}:8080"
 

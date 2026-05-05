@@ -11,6 +11,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/pquerna/otp v1.5.0
 	github.com/redis/go-redis/v9 v9.7.0
+	github.com/stripe/stripe-go/v76 v76.25.0
 	golang.org/x/crypto v0.28.0
 )
 

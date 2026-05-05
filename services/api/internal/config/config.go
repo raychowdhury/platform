@@ -21,7 +21,8 @@ type Config struct {
 	LoginRateWindow time.Duration // window length
 	LoginLockMax    int           // failed attempts before lockout
 	LoginLockFor    time.Duration // lockout duration
-	StripeSecretKey string        // empty = Stripe disabled, dev upgrade enabled
+	StripeSecretKey   string        // empty = Stripe disabled, dev upgrade enabled
+	StripeWebhookSecret string      // whsec_... — used to verify Stripe-Signature
 	BillingSuccessURL string
 	BillingCancelURL  string
 	SMTPAddr        string // empty = console mailer (logs to stdout)
@@ -45,7 +46,8 @@ func Load() (*Config, error) {
 		LoginRateWindow: envDuration("LOGIN_RATE_WINDOW", time.Minute),
 		LoginLockMax:      envInt("LOGIN_LOCK_MAX", 5),
 		LoginLockFor:      envDuration("LOGIN_LOCK_FOR", 15*time.Minute),
-		StripeSecretKey:   envStr("STRIPE_SECRET_KEY", ""),
+		StripeSecretKey:     envStr("STRIPE_SECRET_KEY", ""),
+		StripeWebhookSecret: envStr("STRIPE_WEBHOOK_SECRET", ""),
 		BillingSuccessURL: envStr("BILLING_SUCCESS_URL", "http://localhost:5174/?billing=success"),
 		BillingCancelURL:  envStr("BILLING_CANCEL_URL",  "http://localhost:5174/?billing=cancelled"),
 		SMTPAddr:          envStr("SMTP_ADDR", ""),

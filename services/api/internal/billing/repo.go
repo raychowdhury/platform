@@ -109,6 +109,53 @@ func (r *Repo) GetUserPlan(ctx context.Context, userID uuid.UUID) (*Plan, error)
 	return &p, err
 }
 
+func (r *Repo) SetStripeCustomer(ctx context.Context, userID uuid.UUID, customerID string) error {
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO subscriptions (user_id, plan_code, status, stripe_customer_id)
+		VALUES ($1, 'free', 'active', $2)
+		ON CONFLICT (user_id) DO UPDATE SET
+			stripe_customer_id = EXCLUDED.stripe_customer_id,
+			updated_at = now()
+	`, userID, customerID)
+	return err
+}
+
+func (r *Repo) GetUserIDByCustomer(ctx context.Context, customerID string) (uuid.UUID, error) {
+	var uid uuid.UUID
+	err := r.db.QueryRow(ctx,
+		`SELECT user_id FROM subscriptions WHERE stripe_customer_id = $1`, customerID,
+	).Scan(&uid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, ErrSubscriptionNotFound
+	}
+	return uid, err
+}
+
+func (r *Repo) GetPlanByStripePriceID(ctx context.Context, priceID string) (*Plan, error) {
+	var p Plan
+	err := r.db.QueryRow(ctx, `
+		SELECT code, name, price_cents, currency, interval, stripe_price_id,
+		       max_alerts, max_layouts, max_indicators, history_days, created_at
+		FROM plans WHERE stripe_price_id = $1
+	`, priceID).Scan(
+		&p.Code, &p.Name, &p.PriceCents, &p.Currency, &p.Interval, &p.StripePriceID,
+		&p.MaxAlerts, &p.MaxLayouts, &p.MaxIndicators, &p.HistoryDays, &p.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrPlanNotFound
+	}
+	return &p, err
+}
+
+func (r *Repo) SetStripeSubscription(ctx context.Context, userID uuid.UUID, planCode, status, subID string) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE subscriptions
+		SET plan_code = $1, status = $2, stripe_subscription_id = $3, updated_at = now()
+		WHERE user_id = $4
+	`, planCode, status, subID, userID)
+	return err
+}
+
 // RecordEventOnce inserts an idempotency record. Returns true if inserted, false if already seen.
 func (r *Repo) RecordEventOnce(ctx context.Context, eventID, eventType string, payload []byte) (bool, error) {
 	tag, err := r.db.Exec(ctx, `
