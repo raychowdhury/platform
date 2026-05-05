@@ -122,6 +122,7 @@ func New(d Deps) http.Handler {
 	r.Route("/v1/me", func(r chi.Router) {
 		r.Use(requireAuth)
 		r.Get("/", h.Me(uidFromCtx))
+		r.Put("/preferences", h.UpdatePreferences(uidFromCtx))
 		r.Get("/mfa", h.MFAStatus(uidFromCtx))
 		r.Post("/mfa/totp/setup", h.MFASetup(uidFromCtx))
 		r.Post("/mfa/totp/enable", h.MFAEnable(uidFromCtx))

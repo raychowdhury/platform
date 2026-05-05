@@ -20,15 +20,35 @@ type NotificationSink interface {
 	InsertNotification(ctx context.Context, userID uuid.UUID, alertID *uuid.UUID, typ, title string, body *string, metadata []byte) error
 }
 
+// EmailLookup resolves a user's alert-email preference. Returns (addr, true)
+// only when the user has opted in. The engine sends nothing on (_, false).
+type EmailLookup interface {
+	AlertEmailFor(ctx context.Context, uid uuid.UUID) (string, bool, error)
+}
+
+// Mailer is the subset of internal/mailer the engine uses. Defined locally
+// so the alerts package stays free of net/smtp imports.
+type Mailer interface {
+	Send(ctx context.Context, m MailMessage) error
+}
+
+type MailMessage struct {
+	To      string
+	Subject string
+	Body    string
+}
+
 // Engine watches Redis ticks:* and fires alerts whose threshold the price crosses.
 // Same shape as oms.Engine: in-memory active-symbol set keeps fan-out cheap;
 // the actual flip from active→triggered is atomic via UPDATE ... WHERE status='active'.
 type Engine struct {
-	db    *pgxpool.Pool
-	rdb   *redis.Client
-	repo  *Repo
-	notif NotificationSink
-	log   *slog.Logger
+	db     *pgxpool.Pool
+	rdb    *redis.Client
+	repo   *Repo
+	notif  NotificationSink
+	mailer Mailer
+	emails EmailLookup
+	log    *slog.Logger
 
 	mu     sync.Mutex
 	active map[string]struct{}
@@ -36,6 +56,14 @@ type Engine struct {
 
 func NewEngine(db *pgxpool.Pool, rdb *redis.Client, repo *Repo, notif NotificationSink, log *slog.Logger) *Engine {
 	return &Engine{db: db, rdb: rdb, repo: repo, notif: notif, log: log, active: map[string]struct{}{}}
+}
+
+// WithEmail wires alert-fire email delivery. Both deps must be non-nil for
+// the path to activate; either nil falls back to in-app-only.
+func (e *Engine) WithEmail(m Mailer, l EmailLookup) *Engine {
+	e.mailer = m
+	e.emails = l
+	return e
 }
 
 func (e *Engine) MarkActive(symbol string) {
@@ -157,9 +185,30 @@ func (e *Engine) evalSymbol(ctx context.Context, t tickMsg) error {
 			if err := e.notif.InsertNotification(ctx, fired.UserID, &alertID, "alert_triggered", title, &body, meta); err != nil {
 				e.log.Warn("notif insert", "alert", fired.ID, "err", err)
 			}
+			e.maybeEmail(ctx, fired.UserID, title, body)
 		}
 	}
 	return nil
+}
+
+// maybeEmail sends an email when both mailer and email lookup are wired and
+// the target user has opted in. Best-effort: failures are logged but never
+// block the alert pipeline (in-app notif is the source of truth).
+func (e *Engine) maybeEmail(ctx context.Context, uid uuid.UUID, subject, body string) {
+	if e.mailer == nil || e.emails == nil {
+		return
+	}
+	addr, on, err := e.emails.AlertEmailFor(ctx, uid)
+	if err != nil {
+		e.log.Warn("alert email lookup", "user", uid, "err", err)
+		return
+	}
+	if !on || addr == "" {
+		return
+	}
+	if err := e.mailer.Send(ctx, MailMessage{To: addr, Subject: "Alert: " + subject, Body: body}); err != nil {
+		e.log.Warn("alert email send", "user", uid, "err", err)
+	}
 }
 
 func shouldFire(cond Condition, threshold, price float64) bool {

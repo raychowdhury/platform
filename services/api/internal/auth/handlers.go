@@ -196,6 +196,35 @@ func (h *Handlers) Me(uidProvider func(*http.Request) uuid.UUID) http.HandlerFun
 	}
 }
 
+type prefsReq struct {
+	EmailAlerts *bool `json:"email_alerts,omitempty"`
+}
+
+func (h *Handlers) UpdatePreferences(uidProvider func(*http.Request) uuid.UUID) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req prefsReq
+		if err := httputil.DecodeJSON(r, &req); err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "invalid body")
+			return
+		}
+		uid := uidProvider(r)
+		if req.EmailAlerts != nil {
+			if err := h.repo.SetEmailAlerts(r.Context(), uid, *req.EmailAlerts); err != nil {
+				mapErr(w, err)
+				return
+			}
+		}
+		email, on, err := h.repo.AlertEmailFor(r.Context(), uid)
+		if err != nil {
+			mapErr(w, err)
+			return
+		}
+		httputil.WriteJSON(w, http.StatusOK, map[string]any{
+			"email": email, "email_alerts": on,
+		})
+	}
+}
+
 func (h *Handlers) ChangePassword(uidProvider func(*http.Request) uuid.UUID) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req changePasswordReq

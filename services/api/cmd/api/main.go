@@ -10,15 +10,34 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 
 	"github.com/platform/api/internal/alerts"
+	"github.com/platform/api/internal/auth"
 	"github.com/platform/api/internal/config"
+	"github.com/platform/api/internal/mailer"
 	"github.com/platform/api/internal/notifications"
 	"github.com/platform/api/internal/oms"
 	"github.com/platform/api/internal/server"
 	"github.com/platform/api/internal/storage"
 )
+
+// alertMailerAdapter bridges mailer.Mailer to alerts.Mailer (alerts owns its
+// minimal Mailer/MailMessage so the package stays free of net/smtp).
+type alertMailerAdapter struct{ m mailer.Mailer }
+
+func (a *alertMailerAdapter) Send(ctx context.Context, msg alerts.MailMessage) error {
+	return a.m.Send(ctx, mailer.Message{To: msg.To, Subject: msg.Subject, Body: msg.Body})
+}
+
+// alertEmailAdapter exposes auth.Repo's AlertEmailFor through the alerts
+// EmailLookup interface.
+type alertEmailAdapter struct{ r *auth.Repo }
+
+func (a *alertEmailAdapter) AlertEmailFor(ctx context.Context, uid uuid.UUID) (string, bool, error) {
+	return a.r.AlertEmailFor(ctx, uid)
+}
 
 func init() {
 	// Emit decimals as JSON numbers, not strings. Wire compatibility with the
@@ -73,7 +92,10 @@ func main() {
 
 	alertsRepo := alerts.NewRepo(pg.Pool)
 	notifRepo := notifications.NewRepo(pg.Pool)
-	alertsEngine := alerts.NewEngine(pg.Pool, rdb, alertsRepo, notifRepo, log)
+	authRepo := auth.NewRepo(pg.Pool)
+	mail := mailer.New(log, cfg.SMTPAddr, cfg.SMTPUsername, cfg.SMTPPassword, cfg.MailFrom)
+	alertsEngine := alerts.NewEngine(pg.Pool, rdb, alertsRepo, notifRepo, log).
+		WithEmail(&alertMailerAdapter{m: mail}, &alertEmailAdapter{r: authRepo})
 	go func() {
 		if err := alertsEngine.Run(rootCtx); err != nil && !errors.Is(err, context.Canceled) {
 			log.Error("alerts engine", "err", err)

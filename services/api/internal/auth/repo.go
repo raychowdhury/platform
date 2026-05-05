@@ -97,6 +97,34 @@ func (r *Repo) SetTokensInvalidAfter(ctx context.Context, id uuid.UUID, t time.T
 	return nil
 }
 
+// AlertEmailFor returns (email, true) when the user has opted in to alert
+// emails. Used by the alerts engine to gate sends. Empty/false on missing
+// row or opt-out.
+func (r *Repo) AlertEmailFor(ctx context.Context, id uuid.UUID) (string, bool, error) {
+	var email string
+	var enabled bool
+	err := r.db.QueryRow(ctx,
+		`SELECT email, email_alerts FROM users WHERE id = $1`, id,
+	).Scan(&email, &enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	return email, enabled, err
+}
+
+func (r *Repo) SetEmailAlerts(ctx context.Context, id uuid.UUID, on bool) error {
+	tag, err := r.db.Exec(ctx,
+		`UPDATE users SET email_alerts = $1, updated_at = now() WHERE id = $2`, on, id,
+	)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
+	}
+	return nil
+}
+
 func (r *Repo) GetTokensInvalidAfter(ctx context.Context, id uuid.UUID) (*time.Time, error) {
 	var t *time.Time
 	err := r.db.QueryRow(ctx, `SELECT tokens_invalid_after FROM users WHERE id = $1`, id).Scan(&t)
