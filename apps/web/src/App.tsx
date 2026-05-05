@@ -5,6 +5,7 @@ import Protected from "./auth/Protected";
 import MarketPage from "./chart/MarketPage";
 import PlansPage from "./billing/PlansPage";
 import MfaPage from "./me/MfaPage";
+import ApiKeysPage from "./me/ApiKeysPage";
 import MultiChartPage from "./chart/MultiChartPage";
 import AdminPage from "./admin/AdminPage";
 
@@ -17,6 +18,7 @@ export default function App() {
         <Route path="/" element={<Protected><MarketPage /></Protected>} />
         <Route path="/plans" element={<Protected><PlansPage /></Protected>} />
         <Route path="/me/mfa" element={<Protected><MfaPage /></Protected>} />
+        <Route path="/me/api-keys" element={<Protected><ApiKeysPage /></Protected>} />
         <Route path="/multi" element={<Protected><MultiChartPage /></Protected>} />
         <Route path="/admin" element={<Protected><AdminPage /></Protected>} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -15,6 +15,7 @@ import (
 
 	"github.com/platform/api/internal/admin"
 	"github.com/platform/api/internal/alerts"
+	"github.com/platform/api/internal/apikeys"
 	"github.com/platform/api/internal/audit"
 	"github.com/platform/api/internal/auth"
 	"github.com/platform/api/internal/billing"
@@ -80,7 +81,10 @@ func New(d Deps) http.Handler {
 	h := auth.NewHandlers(svc, repo)
 
 	authIPLimit := mw.FixedWindow(d.Redis, "auth", d.Cfg.LoginRateLimit, d.Cfg.LoginRateWindow, mw.KeyByClientIP)
-	requireAuth := mw.RequireAuth(issuer)
+
+	apiKeysRepo := apikeys.NewRepo(d.DB)
+	apiKeysResolver := &apiKeyResolverAdapter{repo: apiKeysRepo}
+	requireAuth := mw.RequireAuth(issuer, apiKeysResolver)
 	uidFromCtx := func(r *http.Request) uuid.UUID {
 		uid, _ := mw.UserID(r.Context())
 		return uid
@@ -111,6 +115,15 @@ func New(d Deps) http.Handler {
 		r.Post("/mfa/totp/setup", h.MFASetup(uidFromCtx))
 		r.Post("/mfa/totp/enable", h.MFAEnable(uidFromCtx))
 		r.Post("/mfa/totp/disable", h.MFADisable(uidFromCtx))
+
+		// API keys live under /v1/me/api-keys; only JWT-authed sessions can
+		// mint/revoke keys (a key minting another key would be an escalation
+		// vector). We don't enforce that strictly here for MVP, but the FE
+		// only exposes this surface from a logged-in browser session.
+		apiKeysH := apikeys.NewHandlers(apiKeysRepo)
+		r.Get("/api-keys", apiKeysH.List(uidFromCtx))
+		r.Post("/api-keys", apiKeysH.Create(uidFromCtx))
+		r.Delete("/api-keys/{id}", apiKeysH.Revoke(uidFromCtx))
 	})
 
 	billingRepo := billing.NewRepo(d.DB)
@@ -134,10 +147,11 @@ func New(d Deps) http.Handler {
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(requireAuth)
-		r.Post("/orders", omsH.Place(uidFromCtx))
+		// trade scope guards mutating order endpoints; reads only need the implicit read scope
+		r.With(mw.RequireScope("trade")).Post("/orders", omsH.Place(uidFromCtx))
+		r.With(mw.RequireScope("trade")).Delete("/orders/{id}", omsH.Cancel(uidFromCtx))
 		r.Get("/orders", omsH.ListOrders(uidFromCtx))
 		r.Get("/orders/{id}", omsH.GetOrder(uidFromCtx))
-		r.Delete("/orders/{id}", omsH.Cancel(uidFromCtx))
 		r.Get("/fills", omsH.ListFills(uidFromCtx))
 		r.Get("/positions", omsH.ListPositions(uidFromCtx))
 		r.Get("/account", omsH.GetAccount(uidFromCtx))
@@ -222,6 +236,19 @@ func New(d Deps) http.Handler {
 	})
 
 	return r
+}
+
+// apiKeyResolverAdapter bridges apikeys.Repo to mw.APIKeyResolver. The two
+// AuthLookup-shaped types live in different packages on purpose to keep the
+// middleware free of an apikeys import.
+type apiKeyResolverAdapter struct{ repo *apikeys.Repo }
+
+func (a *apiKeyResolverAdapter) LookupByPlaintext(ctx context.Context, plaintext string) (*mw.APIKeyAuth, []string, error) {
+	l, ips, err := a.repo.LookupByPlaintext(ctx, plaintext)
+	if err != nil || l == nil {
+		return nil, ips, err
+	}
+	return &mw.APIKeyAuth{UserID: l.UserID, Scopes: l.Scopes}, ips, nil
 }
 
 func slogRequestLogger(log *slog.Logger) func(http.Handler) http.Handler {

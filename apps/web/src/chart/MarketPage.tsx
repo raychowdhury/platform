@@ -334,6 +334,7 @@ export default function MarketPage() {
         </span>
         <Link to="/plans" className="plan-pill">{sub?.plan_code ?? "free"}</Link>
         <Link to="/me/mfa" className="link" style={{ fontSize: 12 }}>2fa</Link>
+        <Link to="/me/api-keys" className="link" style={{ fontSize: 12 }}>keys</Link>
         <Link to="/multi" className="link" style={{ fontSize: 12 }}>multi</Link>
         {role === "admin" && <Link to="/admin" className="link" style={{ fontSize: 12 }}>admin</Link>}
         <NotificationsBell refreshTrigger={notifTick} />

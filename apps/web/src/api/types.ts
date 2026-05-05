@@ -28,6 +28,30 @@ export interface AdminUser {
   locked: number;
 }
 
+export interface ApiKey {
+  id: string;
+  user_id: string;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  ip_allowlist?: string[];
+  last_used_at?: string;
+  expires_at?: string;
+  revoked_at?: string;
+  created_at: string;
+}
+
+export interface ApiKeyCreated extends ApiKey {
+  secret: string; // shown once
+}
+
+export interface ApiKeyCreateRequest {
+  name: string;
+  scopes?: string[];
+  ip_allowlist?: string[];
+  expires_at?: string;
+}
+
 export interface AdminAuditRow {
   id: number;
   actor_id: string;

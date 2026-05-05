@@ -5,6 +5,9 @@ import type {
   AdminUser,
   Alert,
   AlertCreateRequest,
+  ApiKey,
+  ApiKeyCreateRequest,
+  ApiKeyCreated,
   Candle,
   Layout,
   LayoutSaveRequest,
@@ -207,4 +210,11 @@ export const api = {
       .then((r) => asJSON<{ balance: number }>(r)),
   adminListAudit: (limit = 100) =>
     authedFetch(`/v1/admin/audit?limit=${limit}`).then((r) => asJSON<AdminAuditRow[]>(r)),
+
+  listApiKeys: () => authedFetch(`/v1/me/api-keys`).then((r) => asJSON<ApiKey[]>(r)),
+  createApiKey: (req: ApiKeyCreateRequest) =>
+    authedFetch(`/v1/me/api-keys`, { method: "POST", body: JSON.stringify(req) }).then((r) => asJSON<ApiKeyCreated>(r)),
+  revokeApiKey: (id: string) =>
+    authedFetch(`/v1/me/api-keys/${id}`, { method: "DELETE" })
+      .then((r) => { if (!r.ok && r.status !== 204) throw new Error(`${r.status}`); }),
 };
