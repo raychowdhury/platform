@@ -186,6 +186,16 @@ func (s *Service) Refresh(ctx context.Context, refreshToken, ip, ua string) (*To
 	if err != nil {
 		return nil, err
 	}
+	// Re-check user status — frozen / inactive users must not get fresh tokens
+	// even if they were holding a valid refresh.
+	u, err := s.repo.GetUserByID(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	if u.Status != "active" {
+		s.auditor.Record(ctx, &uid, "auth.refresh.fail", ip, ua, map[string]any{"reason": "inactive"})
+		return nil, ErrAccountInactive
+	}
 	pair, err := s.issuePair(ctx, uid)
 	if err != nil {
 		return nil, err

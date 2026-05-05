@@ -26,10 +26,10 @@ func (r *Repo) CreateUser(ctx context.Context, email, passwordHash string) (*Use
 	err := r.db.QueryRow(ctx, `
 		INSERT INTO users (email, password_hash)
 		VALUES ($1, $2)
-		RETURNING id, email, password_hash, status, email_verified_at,
+		RETURNING id, email, password_hash, status, role, email_verified_at,
 		          failed_login_count, locked_until, last_login_at, created_at, updated_at
 	`, email, passwordHash).Scan(
-		&u.ID, &u.Email, &u.PasswordHash, &u.Status, &u.EmailVerifiedAt,
+		&u.ID, &u.Email, &u.PasswordHash, &u.Status, &u.Role, &u.EmailVerifiedAt,
 		&u.FailedLoginCount, &u.LockedUntil, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
@@ -45,11 +45,11 @@ func (r *Repo) CreateUser(ctx context.Context, email, passwordHash string) (*Use
 func (r *Repo) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	u := &User{}
 	err := r.db.QueryRow(ctx, `
-		SELECT id, email, password_hash, status, email_verified_at,
+		SELECT id, email, password_hash, status, role, email_verified_at,
 		       failed_login_count, locked_until, last_login_at, created_at, updated_at
 		FROM users WHERE email = $1
 	`, email).Scan(
-		&u.ID, &u.Email, &u.PasswordHash, &u.Status, &u.EmailVerifiedAt,
+		&u.ID, &u.Email, &u.PasswordHash, &u.Status, &u.Role, &u.EmailVerifiedAt,
 		&u.FailedLoginCount, &u.LockedUntil, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -61,11 +61,11 @@ func (r *Repo) GetUserByEmail(ctx context.Context, email string) (*User, error) 
 func (r *Repo) GetUserByID(ctx context.Context, id uuid.UUID) (*User, error) {
 	u := &User{}
 	err := r.db.QueryRow(ctx, `
-		SELECT id, email, password_hash, status, email_verified_at,
+		SELECT id, email, password_hash, status, role, email_verified_at,
 		       failed_login_count, locked_until, last_login_at, created_at, updated_at
 		FROM users WHERE id = $1
 	`, id).Scan(
-		&u.ID, &u.Email, &u.PasswordHash, &u.Status, &u.EmailVerifiedAt,
+		&u.ID, &u.Email, &u.PasswordHash, &u.Status, &u.Role, &u.EmailVerifiedAt,
 		&u.FailedLoginCount, &u.LockedUntil, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {

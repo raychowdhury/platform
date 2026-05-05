@@ -6,6 +6,7 @@ import MarketPage from "./chart/MarketPage";
 import PlansPage from "./billing/PlansPage";
 import MfaPage from "./me/MfaPage";
 import MultiChartPage from "./chart/MultiChartPage";
+import AdminPage from "./admin/AdminPage";
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
         <Route path="/plans" element={<Protected><PlansPage /></Protected>} />
         <Route path="/me/mfa" element={<Protected><MfaPage /></Protected>} />
         <Route path="/multi" element={<Protected><MultiChartPage /></Protected>} />
+        <Route path="/admin" element={<Protected><AdminPage /></Protected>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

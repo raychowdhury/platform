@@ -1,6 +1,8 @@
 import { getAuth, useAuth } from "../auth/store";
 import type {
   Account,
+  AdminAuditRow,
+  AdminUser,
   Alert,
   AlertCreateRequest,
   Candle,
@@ -186,4 +188,23 @@ export const api = {
   deleteLayout: (id: string) =>
     authedFetch(`/v1/layouts/${id}`, { method: "DELETE" })
       .then((r) => { if (!r.ok && r.status !== 204) throw new Error(`${r.status}`); }),
+
+  // Admin (RBAC: server returns 403 for non-admins)
+  adminListUsers: (q = "", limit = 50) => {
+    const p = new URLSearchParams({ limit: String(limit) });
+    if (q) p.set("q", q);
+    return authedFetch(`/v1/admin/users?${p}`).then((r) => asJSON<AdminUser[]>(r));
+  },
+  adminGetUser: (id: string) => authedFetch(`/v1/admin/users/${id}`).then((r) => asJSON<AdminUser>(r)),
+  adminFreezeUser: (id: string, reason: string) =>
+    authedFetch(`/v1/admin/users/${id}/freeze`, { method: "POST", body: JSON.stringify({ reason }) })
+      .then((r) => { if (!r.ok && r.status !== 204) throw new Error(`${r.status}`); }),
+  adminUnfreezeUser: (id: string, reason: string) =>
+    authedFetch(`/v1/admin/users/${id}/unfreeze`, { method: "POST", body: JSON.stringify({ reason }) })
+      .then((r) => { if (!r.ok && r.status !== 204) throw new Error(`${r.status}`); }),
+  adminAdjustBalance: (id: string, delta: number, reason: string) =>
+    authedFetch(`/v1/admin/users/${id}/balance`, { method: "POST", body: JSON.stringify({ delta, reason }) })
+      .then((r) => asJSON<{ balance: number }>(r)),
+  adminListAudit: (limit = 100) =>
+    authedFetch(`/v1/admin/audit?limit=${limit}`).then((r) => asJSON<AdminAuditRow[]>(r)),
 };

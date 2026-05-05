@@ -11,6 +11,7 @@ type User struct {
 	Email            string
 	PasswordHash     string
 	Status           string
+	Role             string
 	EmailVerifiedAt  *time.Time
 	FailedLoginCount int
 	LockedUntil      *time.Time

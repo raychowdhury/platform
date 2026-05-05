@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/platform/api/internal/admin"
 	"github.com/platform/api/internal/alerts"
 	"github.com/platform/api/internal/audit"
 	"github.com/platform/api/internal/auth"
@@ -184,6 +185,22 @@ func New(d Deps) http.Handler {
 		r.Get("/{id}", layoutsH.Get(uidFromCtx))
 		r.Put("/{id}", layoutsH.Update(uidFromCtx))
 		r.Delete("/{id}", layoutsH.Delete(uidFromCtx))
+	})
+
+	// Admin (RBAC: role='admin')
+	adminRepo := admin.NewRepo(d.DB)
+	adminH := admin.NewHandlers(adminRepo)
+	requireAdmin := mw.RequireRole(d.DB, "admin")
+
+	r.Route("/v1/admin", func(r chi.Router) {
+		r.Use(requireAuth)
+		r.Use(requireAdmin)
+		r.Get("/users", adminH.ListUsers)
+		r.Get("/users/{id}", adminH.GetUser)
+		r.Post("/users/{id}/freeze", adminH.Freeze(uidFromCtx))
+		r.Post("/users/{id}/unfreeze", adminH.Unfreeze(uidFromCtx))
+		r.Post("/users/{id}/balance", adminH.AdjustBalance(uidFromCtx))
+		r.Get("/audit", adminH.ListAudit)
 	})
 
 	r.Route("/v1/billing", func(r chi.Router) {

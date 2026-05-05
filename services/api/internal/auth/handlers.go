@@ -67,6 +67,7 @@ type meResp struct {
 	ID              uuid.UUID  `json:"id"`
 	Email           string     `json:"email"`
 	Status          string     `json:"status"`
+	Role            string     `json:"role"`
 	EmailVerifiedAt *time.Time `json:"email_verified_at"`
 	LastLoginAt     *time.Time `json:"last_login_at"`
 	CreatedAt       time.Time  `json:"created_at"`
@@ -187,6 +188,7 @@ func (h *Handlers) Me(uidProvider func(*http.Request) uuid.UUID) http.HandlerFun
 			ID:              u.ID,
 			Email:           u.Email,
 			Status:          u.Status,
+			Role:            u.Role,
 			EmailVerifiedAt: u.EmailVerifiedAt,
 			LastLoginAt:     u.LastLoginAt,
 			CreatedAt:       u.CreatedAt,

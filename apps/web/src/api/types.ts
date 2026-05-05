@@ -10,8 +10,32 @@ export interface User {
   id: string;
   email: string;
   status: string;
+  role: string;
   email_verified_at: string | null;
   last_login_at: string | null;
+  created_at: string;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  status: string;
+  role: string;
+  email_verified_at: string | null;
+  last_login_at: string | null;
+  created_at: string;
+  balance: number;
+  locked: number;
+}
+
+export interface AdminAuditRow {
+  id: number;
+  actor_id: string;
+  target_id?: string;
+  action: string;
+  metadata?: Record<string, unknown>;
+  ip?: string;
+  user_agent?: string;
   created_at: string;
 }
 

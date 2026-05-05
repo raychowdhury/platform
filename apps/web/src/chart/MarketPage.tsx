@@ -65,6 +65,7 @@ export default function MarketPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [notifTick, setNotifTick] = useState(0);
+  const [role, setRole] = useState<string>("user");
   const marksRef = useRef<Map<string, number>>(new Map());
   const [marks, setMarks] = useState<Map<string, number>>(new Map());
 
@@ -84,6 +85,7 @@ export default function MarketPage() {
       })
       .catch((e) => setErr(String(e)));
     api.listPlans().then((p) => { if (!cancelled) setPlans(p); }).catch(() => {});
+    api.me().then((u) => { if (!cancelled) setRole(u.role); }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
 
@@ -333,6 +335,7 @@ export default function MarketPage() {
         <Link to="/plans" className="plan-pill">{sub?.plan_code ?? "free"}</Link>
         <Link to="/me/mfa" className="link" style={{ fontSize: 12 }}>2fa</Link>
         <Link to="/multi" className="link" style={{ fontSize: 12 }}>multi</Link>
+        {role === "admin" && <Link to="/admin" className="link" style={{ fontSize: 12 }}>admin</Link>}
         <NotificationsBell refreshTrigger={notifTick} />
         {err && <span className="error">{err}</span>}
         <button onClick={async () => { await api.logout(); clearAuth(); location.href = "/login"; }}>logout</button>
