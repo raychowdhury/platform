@@ -24,6 +24,7 @@ import OrdersPanel from "../oms/OrdersPanel";
 import { useOmsStream } from "../oms/useOmsStream";
 import AlertsPanel from "../alerts/AlertsPanel";
 import { useAlertsStream } from "../alerts/useAlertsStream";
+import NotificationsBell from "../notifications/NotificationsBell";
 
 const TFS: Timeframe[] = ["1m", "5m", "15m", "30m", "1h", "4h", "8h", "1d", "1w"];
 
@@ -63,6 +64,7 @@ export default function MarketPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [toast, setToast] = useState<string | null>(null);
+  const [notifTick, setNotifTick] = useState(0);
   const marksRef = useRef<Map<string, number>>(new Map());
   const [marks, setMarks] = useState<Map<string, number>>(new Map());
 
@@ -124,6 +126,7 @@ export default function MarketPage() {
     const arrow = e.condition === "price_above" ? "≥" : "≤";
     setToast(`🔔 ${e.symbol} ${arrow} ${e.threshold} (now ${e.price.toFixed(2)})`);
     refreshOms();
+    setNotifTick((n) => n + 1);
     window.setTimeout(() => setToast(null), 6000);
   });
 
@@ -329,6 +332,7 @@ export default function MarketPage() {
         </span>
         <Link to="/plans" className="plan-pill">{sub?.plan_code ?? "free"}</Link>
         <Link to="/me/mfa" className="link" style={{ fontSize: 12 }}>2fa</Link>
+        <NotificationsBell refreshTrigger={notifTick} />
         {err && <span className="error">{err}</span>}
         <button onClick={async () => { await api.logout(); clearAuth(); location.href = "/login"; }}>logout</button>
       </div>

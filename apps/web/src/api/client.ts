@@ -7,6 +7,7 @@ import type {
   LoginResponse,
   MFASetupResponse,
   MFAStatus,
+  Notification as AppNotification,
   Order,
   PlaceOrderRequest,
   Plan,
@@ -162,4 +163,15 @@ export const api = {
   deleteAlert: (id: string) =>
     authedFetch(`/v1/alerts/${id}`, { method: "DELETE" })
       .then((r) => { if (!r.ok) throw new Error(`${r.status}`); }),
+
+  listNotifications: (limit = 50) =>
+    authedFetch(`/v1/notifications/?limit=${limit}`).then((r) => asJSON<AppNotification[]>(r)),
+  unreadCount: () =>
+    authedFetch(`/v1/notifications/unread_count`).then((r) => asJSON<{ unread: number }>(r)),
+  markNotificationRead: (id: number) =>
+    authedFetch(`/v1/notifications/${id}/read`, { method: "POST" })
+      .then((r) => { if (!r.ok && r.status !== 204) throw new Error(`${r.status}`); }),
+  markAllNotificationsRead: () =>
+    authedFetch(`/v1/notifications/read_all`, { method: "POST" })
+      .then((r) => asJSON<{ updated: number }>(r)),
 };

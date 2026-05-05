@@ -4,28 +4,38 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
+
+// NotificationSink is the minimal write API the alerts engine needs.
+// Decoupled to avoid an import cycle and to keep the engine testable.
+// Implementations adapt their richer return shape to this signature.
+type NotificationSink interface {
+	InsertNotification(ctx context.Context, userID uuid.UUID, alertID *uuid.UUID, typ, title string, body *string, metadata []byte) error
+}
 
 // Engine watches Redis ticks:* and fires alerts whose threshold the price crosses.
 // Same shape as oms.Engine: in-memory active-symbol set keeps fan-out cheap;
 // the actual flip from active→triggered is atomic via UPDATE ... WHERE status='active'.
 type Engine struct {
-	db   *pgxpool.Pool
-	rdb  *redis.Client
-	repo *Repo
-	log  *slog.Logger
+	db    *pgxpool.Pool
+	rdb   *redis.Client
+	repo  *Repo
+	notif NotificationSink
+	log   *slog.Logger
 
 	mu     sync.Mutex
 	active map[string]struct{}
 }
 
-func NewEngine(db *pgxpool.Pool, rdb *redis.Client, repo *Repo, log *slog.Logger) *Engine {
-	return &Engine{db: db, rdb: rdb, repo: repo, log: log, active: map[string]struct{}{}}
+func NewEngine(db *pgxpool.Pool, rdb *redis.Client, repo *Repo, notif NotificationSink, log *slog.Logger) *Engine {
+	return &Engine{db: db, rdb: rdb, repo: repo, notif: notif, log: log, active: map[string]struct{}{}}
 }
 
 func (e *Engine) MarkActive(symbol string) {
@@ -130,6 +140,24 @@ func (e *Engine) evalSymbol(ctx context.Context, t tickMsg) error {
 			"t":         t.TimeMs,
 		})
 		_ = e.rdb.Publish(ctx, "alerts:"+fired.UserID.String(), payload).Err()
+
+		// persist a user-facing notification (best effort — logged on failure)
+		if e.notif != nil {
+			arrow := "≥"
+			if fired.Condition == PriceBelow {
+				arrow = "≤"
+			}
+			title := fmt.Sprintf("%s %s %.2f", fired.Symbol, arrow, fired.Threshold)
+			body := fmt.Sprintf("triggered at %.2f", t.Price)
+			meta, _ := json.Marshal(map[string]any{
+				"symbol": fired.Symbol, "condition": fired.Condition,
+				"threshold": fired.Threshold, "price": t.Price,
+			})
+			alertID := fired.ID
+			if err := e.notif.InsertNotification(ctx, fired.UserID, &alertID, "alert_triggered", title, &body, meta); err != nil {
+				e.log.Warn("notif insert", "alert", fired.ID, "err", err)
+			}
+		}
 	}
 	return nil
 }

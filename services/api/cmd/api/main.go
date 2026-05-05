@@ -12,6 +12,7 @@ import (
 
 	"github.com/platform/api/internal/alerts"
 	"github.com/platform/api/internal/config"
+	"github.com/platform/api/internal/notifications"
 	"github.com/platform/api/internal/oms"
 	"github.com/platform/api/internal/server"
 	"github.com/platform/api/internal/storage"
@@ -60,7 +61,8 @@ func main() {
 	}()
 
 	alertsRepo := alerts.NewRepo(pg.Pool)
-	alertsEngine := alerts.NewEngine(pg.Pool, rdb, alertsRepo, log)
+	notifRepo := notifications.NewRepo(pg.Pool)
+	alertsEngine := alerts.NewEngine(pg.Pool, rdb, alertsRepo, notifRepo, log)
 	go func() {
 		if err := alertsEngine.Run(rootCtx); err != nil && !errors.Is(err, context.Canceled) {
 			log.Error("alerts engine", "err", err)

@@ -21,6 +21,7 @@ import (
 	"github.com/platform/api/internal/entitlements"
 	"github.com/platform/api/internal/market"
 	mw "github.com/platform/api/internal/middleware"
+	"github.com/platform/api/internal/notifications"
 	"github.com/platform/api/internal/oms"
 )
 
@@ -156,6 +157,18 @@ func New(d Deps) http.Handler {
 		r.Post("/", alertsH.Create(uidFromCtx))
 		r.Get("/", alertsH.List(uidFromCtx))
 		r.Delete("/{id}", alertsH.Delete(uidFromCtx))
+	})
+
+	// Notifications
+	notifRepo := notifications.NewRepo(d.DB)
+	notifH := notifications.NewHandlers(notifRepo)
+
+	r.Route("/v1/notifications", func(r chi.Router) {
+		r.Use(requireAuth)
+		r.Get("/", notifH.List(uidFromCtx))
+		r.Get("/unread_count", notifH.UnreadCount(uidFromCtx))
+		r.Post("/{id}/read", notifH.MarkRead(uidFromCtx))
+		r.Post("/read_all", notifH.MarkAllRead(uidFromCtx))
 	})
 
 	r.Route("/v1/billing", func(r chi.Router) {

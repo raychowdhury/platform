@@ -171,6 +171,29 @@ a:hover { text-decoration: underline; }
 .alert-form .seg button { padding: 4px 0; font-size: 12px; }
 .alert-form button[type="submit"] { margin-top: 4px; }
 
+/* notifications bell */
+.bell { position: relative; }
+.bell-btn { padding: 4px 8px; background: transparent; border: 1px solid var(--border); cursor: pointer; }
+.bell-badge {
+  position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px;
+  padding: 0 4px; border-radius: 8px; background: var(--error); color: white;
+  font-size: 10px; line-height: 16px; text-align: center;
+}
+.bell-pop {
+  position: absolute; top: calc(100% + 8px); right: 0; width: 360px; max-height: 480px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.5); display: flex; flex-direction: column; z-index: 50;
+}
+.bell-head { display: flex; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.bell-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
+.bell-list li { padding: 10px 12px; border-bottom: 1px solid #181b25; cursor: pointer; }
+.bell-list li.unread { background: #131a26; }
+.bell-list li.read { opacity: 0.6; cursor: default; }
+.bell-list li:hover.unread { background: #18222e; }
+.bell-title { font-size: 13px; font-weight: 600; }
+.bell-body  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.bell-time  { margin-top: 4px; }
+
 /* toast */
 .toast {
   position: fixed; right: 24px; bottom: 24px; z-index: 100;

@@ -161,6 +161,18 @@ export interface AlertCreateRequest {
   note?: string;
 }
 
+export interface Notification {
+  id: number;
+  user_id: string;
+  alert_id?: string;
+  type: string;
+  title: string;
+  body?: string;
+  metadata?: Record<string, unknown>;
+  read_at?: string;
+  created_at: string;
+}
+
 export const TF_SECONDS: Record<Timeframe, number> = {
   "1m": 60,
   "5m": 300,
