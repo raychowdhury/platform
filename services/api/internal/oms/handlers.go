@@ -158,7 +158,7 @@ func statusFor(err error) int {
 		errors.Is(err, ErrStopPriceMissing),
 		errors.Is(err, ErrInvalidQty), errors.Is(err, ErrSymbolRequired):
 		return http.StatusBadRequest
-	case errors.Is(err, ErrInsufficientFunds):
+	case errors.Is(err, ErrInsufficientFunds), errors.Is(err, ErrInsufficientQty):
 		return http.StatusPaymentRequired
 	case errors.Is(err, ErrNoMarkPrice):
 		return http.StatusServiceUnavailable

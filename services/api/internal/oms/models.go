@@ -57,12 +57,14 @@ type Fill struct {
 }
 
 type Position struct {
-	UserID       uuid.UUID `json:"user_id"`
-	Symbol       string    `json:"symbol"`
-	Qty          float64   `json:"qty"`
-	AvgCost      float64   `json:"avg_cost"`
-	RealizedPnL  float64   `json:"realized_pnl"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	UserID      uuid.UUID `json:"user_id"`
+	Symbol      string    `json:"symbol"`
+	Qty         float64   `json:"qty"`
+	LockedQty   float64   `json:"locked_qty"`
+	Available   float64   `json:"available"`
+	AvgCost     float64   `json:"avg_cost"`
+	RealizedPnL float64   `json:"realized_pnl"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type Account struct {

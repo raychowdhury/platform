@@ -20,6 +20,7 @@ var (
 	ErrSymbolRequired    = errors.New("symbol required")
 	ErrNoMarkPrice       = errors.New("no recent price available for market order — try again in a moment")
 	ErrInsufficientFunds = errors.New("insufficient available balance")
+	ErrInsufficientQty   = errors.New("insufficient available position qty")
 )
 
 // marketSlippageBuffer over-reserves market-buy orders to absorb price moves
@@ -123,6 +124,33 @@ func (s *Service) Place(ctx context.Context, p PlaceParams) (*Order, error) {
 		}
 	}
 
+	if p.Side == Sell {
+		// Lock qty out of the position so concurrent open sells can't oversell.
+		// Position row is created/updated even when the user has no open position
+		// yet — Sell with no position will fail the available check below.
+		var posQty, lockedQty float64
+		err := tx.QueryRow(ctx, `
+			SELECT qty::float8, locked_qty::float8
+			FROM positions WHERE user_id = $1 AND symbol = $2 FOR UPDATE
+		`, p.UserID, p.Symbol).Scan(&posQty, &lockedQty)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: need %.8f, available 0", ErrInsufficientQty, p.Qty)
+		}
+		if err != nil {
+			return nil, err
+		}
+		avail := posQty - lockedQty
+		if avail+1e-8 < p.Qty {
+			return nil, fmt.Errorf("%w: need %.8f, available %.8f", ErrInsufficientQty, p.Qty, avail)
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE positions SET locked_qty = locked_qty + $1, updated_at = now()
+			WHERE user_id = $2 AND symbol = $3
+		`, p.Qty, p.UserID, p.Symbol); err != nil {
+			return nil, err
+		}
+	}
+
 	o, err := s.repo.InsertOrderTx(ctx, tx, InsertParams{
 		UserID:        p.UserID,
 		ClientOrderID: p.ClientOrderID,
@@ -189,11 +217,23 @@ func (s *Service) Cancel(ctx context.Context, userID, orderID uuid.UUID) (*Order
 	if err != nil {
 		return nil, err
 	}
-	if o.ReservedCost > 0 {
+	if o.Side == Buy && o.ReservedCost > 0 {
 		if _, err := tx.Exec(ctx, `
 			UPDATE accounts SET locked = locked - $1, updated_at = now() WHERE user_id = $2
 		`, o.ReservedCost, userID); err != nil {
 			return nil, err
+		}
+	}
+	if o.Side == Sell {
+		// Release the unfilled portion of the qty back to position.locked_qty.
+		remaining := o.Qty - o.FilledQty
+		if remaining > 0 {
+			if _, err := tx.Exec(ctx, `
+				UPDATE positions SET locked_qty = locked_qty - $1, updated_at = now()
+				WHERE user_id = $2 AND symbol = $3
+			`, remaining, userID, o.Symbol); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {

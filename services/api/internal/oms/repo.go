@@ -165,8 +165,10 @@ func (r *Repo) ListFills(ctx context.Context, userID uuid.UUID, limit int) ([]Fi
 
 func (r *Repo) ListPositions(ctx context.Context, userID uuid.UUID) ([]Position, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT user_id, symbol, qty::float8, avg_cost::float8, realized_pnl::float8, updated_at
-		FROM positions WHERE user_id = $1 AND qty <> 0
+		SELECT user_id, symbol,
+		       qty::float8, locked_qty::float8, avg_cost::float8, realized_pnl::float8,
+		       updated_at
+		FROM positions WHERE user_id = $1 AND (qty <> 0 OR locked_qty <> 0)
 		ORDER BY symbol
 	`, userID)
 	if err != nil {
@@ -176,9 +178,10 @@ func (r *Repo) ListPositions(ctx context.Context, userID uuid.UUID) ([]Position,
 	var out []Position
 	for rows.Next() {
 		var p Position
-		if err := rows.Scan(&p.UserID, &p.Symbol, &p.Qty, &p.AvgCost, &p.RealizedPnL, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.UserID, &p.Symbol, &p.Qty, &p.LockedQty, &p.AvgCost, &p.RealizedPnL, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
+		p.Available = p.Qty - p.LockedQty
 		out = append(out, p)
 	}
 	return out, rows.Err()

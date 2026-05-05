@@ -14,7 +14,7 @@ export default function PositionsPanel({ positions, marks }: Props) {
       ) : (
         <table className="oms-table">
           <thead>
-            <tr><th>Symbol</th><th>Qty</th><th>Avg</th><th>Mark</th><th>uPnL</th></tr>
+            <tr><th>Symbol</th><th>Qty</th><th>Lock</th><th>Avg</th><th>Mark</th><th>uPnL</th></tr>
           </thead>
           <tbody>
             {positions.map((p) => {
@@ -25,6 +25,7 @@ export default function PositionsPanel({ positions, marks }: Props) {
                 <tr key={p.symbol}>
                   <td>{p.symbol}</td>
                   <td>{p.qty.toFixed(6)}</td>
+                  <td className={p.locked_qty > 0 ? "down" : "muted"}>{p.locked_qty.toFixed(6)}</td>
                   <td>{p.avg_cost.toFixed(2)}</td>
                   <td>{mark != null ? mark.toFixed(2) : "—"}</td>
                   <td className={cls}>{upnl != null ? upnl.toFixed(2) : "—"}</td>

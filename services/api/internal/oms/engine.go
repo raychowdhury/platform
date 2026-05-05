@@ -143,6 +143,7 @@ func (e *Engine) snapshotActive() []string {
 type orderRow struct {
 	ID           uuid.UUID
 	UserID       uuid.UUID
+	Symbol       string
 	Side         Side
 	Type         Type
 	LimitPrice   *float64
@@ -166,7 +167,7 @@ func (e *Engine) processSymbol(ctx context.Context, t tickMsg) error {
 	defer tx.Rollback(ctx)
 
 	rows, err := tx.Query(ctx, `
-		SELECT id, user_id, side, type, limit_price, stop_price,
+		SELECT id, user_id, symbol, side, type, limit_price, stop_price,
 		       qty::float8, filled_qty::float8, reserved_cost::float8, status
 		FROM orders
 		WHERE symbol = $1 AND status IN ('open','pending')
@@ -180,7 +181,7 @@ func (e *Engine) processSymbol(ctx context.Context, t tickMsg) error {
 	for rows.Next() {
 		var o orderRow
 		var lp, sp *float64
-		if err := rows.Scan(&o.ID, &o.UserID, &o.Side, &o.Type, &lp, &sp,
+		if err := rows.Scan(&o.ID, &o.UserID, &o.Symbol, &o.Side, &o.Type, &lp, &sp,
 			&o.Qty, &o.FilledQty, &o.ReservedCost, &o.Status); err != nil {
 			rows.Close()
 			return err
@@ -297,12 +298,12 @@ func (e *Engine) fillOne(ctx context.Context, tx pgx.Tx, t tickMsg, o *orderRow)
 		`, o.UserID, t.Symbol, fillQty, fillPrice); err != nil {
 			return err
 		}
-	} else { // sell — paper engine: live qty check at fill time, no per-order qty reservation
-		var posQty, avgCost float64
+	} else { // sell — qty was locked at place time, decrement both qty and locked_qty here
+		var posQty, lockedQty, avgCost float64
 		err := tx.QueryRow(ctx, `
-			SELECT qty::float8, avg_cost::float8
+			SELECT qty::float8, locked_qty::float8, avg_cost::float8
 			FROM positions WHERE user_id = $1 AND symbol = $2 FOR UPDATE
-		`, o.UserID, t.Symbol).Scan(&posQty, &avgCost)
+		`, o.UserID, t.Symbol).Scan(&posQty, &lockedQty, &avgCost)
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && posQty < fillQty) {
 			return e.rejectAndRelease(ctx, tx, o, "insufficient position")
 		}
@@ -319,7 +320,10 @@ func (e *Engine) fillOne(ctx context.Context, tx pgx.Tx, t tickMsg, o *orderRow)
 		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE positions
-			SET qty = qty - $1, realized_pnl = realized_pnl + $2, updated_at = now()
+			SET qty = qty - $1,
+			    locked_qty = GREATEST(0, locked_qty - $1),
+			    realized_pnl = realized_pnl + $2,
+			    updated_at = now()
 			WHERE user_id = $3 AND symbol = $4
 		`, fillQty, realized, o.UserID, t.Symbol); err != nil {
 			return err
@@ -357,7 +361,8 @@ func (e *Engine) fillOne(ctx context.Context, tx pgx.Tx, t tickMsg, o *orderRow)
 	return nil
 }
 
-// rejectAndRelease flips the order to rejected and refunds any reserved cost.
+// rejectAndRelease flips the order to rejected and reverses whatever reservation
+// was held against it: balance for buys, position qty for sells.
 func (e *Engine) rejectAndRelease(ctx context.Context, tx pgx.Tx, o *orderRow, reason string) error {
 	if o.Side == Buy && o.ReservedCost > 0 {
 		if _, err := tx.Exec(ctx, `
@@ -365,6 +370,18 @@ func (e *Engine) rejectAndRelease(ctx context.Context, tx pgx.Tx, o *orderRow, r
 			WHERE user_id = $2
 		`, o.ReservedCost, o.UserID); err != nil {
 			return err
+		}
+	}
+	if o.Side == Sell {
+		remaining := o.Qty - o.FilledQty
+		if remaining > 0 {
+			if _, err := tx.Exec(ctx, `
+				UPDATE positions
+				SET locked_qty = GREATEST(0, locked_qty - $1), updated_at = now()
+				WHERE user_id = $2 AND symbol = $3
+			`, remaining, o.UserID, o.Symbol); err != nil {
+				return err
+			}
 		}
 	}
 	_, err := tx.Exec(ctx, `

@@ -75,6 +75,8 @@ export interface Position {
   user_id: string;
   symbol: string;
   qty: number;
+  locked_qty: number;
+  available: number;
   avg_cost: number;
   realized_pnl: number;
   updated_at: string;
