@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import { useAuth } from "../auth/store";
 import type {
@@ -7,6 +8,7 @@ import type {
   Order,
   Position,
   StreamTick,
+  Subscription,
   Symbol as SymbolMeta,
   Timeframe,
 } from "../api/types";
@@ -17,6 +19,7 @@ import { useStream } from "./useStream";
 import Ticket from "../oms/Ticket";
 import PositionsPanel from "../oms/PositionsPanel";
 import OrdersPanel from "../oms/OrdersPanel";
+import { useOmsStream } from "../oms/useOmsStream";
 
 const TFS: Timeframe[] = ["1m", "5m", "15m", "30m", "1h", "4h", "8h", "1d", "1w"];
 
@@ -47,7 +50,9 @@ export default function MarketPage() {
   const [err, setErr] = useState<string | null>(null);
   const [active, setActive] = useState<Set<IndicatorKey>>(() => new Set(["ma20"]));
 
+  const [userId, setUserId] = useState<string | null>(null);
   const [account, setAccount] = useState<Account | null>(null);
+  const [sub, setSub] = useState<Subscription | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const marksRef = useRef<Map<string, number>>(new Map());
@@ -73,22 +78,31 @@ export default function MarketPage() {
 
   const refreshOms = useCallback(async () => {
     try {
-      const [a, p, o] = await Promise.all([api.account(), api.positions(), api.orders(undefined, 50)]);
+      const [a, p, o, s] = await Promise.all([
+        api.account(),
+        api.positions(),
+        api.orders(undefined, 50),
+        api.mySubscription().catch(() => null),
+      ]);
       setAccount(a);
       setPositions(p);
       setOrders(o);
+      setUserId(a.user_id);
+      if (s) setSub(s);
     } catch (e: unknown) {
       // surface but don't crash UI
       console.warn("oms refresh", e);
     }
   }, []);
 
-  // poll OMS state every 2s
+  // initial load + slow safety poll (WS push is the primary refresh trigger now)
   useEffect(() => {
     refreshOms();
-    const t = window.setInterval(refreshOms, 2000);
+    const t = window.setInterval(refreshOms, 15000);
     return () => window.clearInterval(t);
   }, [refreshOms]);
+
+  useOmsStream(userId, () => { refreshOms(); });
 
   const refreshIndicators = useCallback(() => {
     const handle = chartRef.current;
@@ -240,6 +254,7 @@ export default function MarketPage() {
             </>
           ) : "—"}
         </span>
+        <Link to="/plans" className="plan-pill">{sub?.plan_code ?? "free"}</Link>
         {err && <span className="error">{err}</span>}
         <button onClick={async () => { await api.logout(); clearAuth(); location.href = "/login"; }}>logout</button>
       </div>

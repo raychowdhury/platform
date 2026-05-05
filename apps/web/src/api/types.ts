@@ -94,6 +94,28 @@ export interface PlaceOrderRequest {
   client_order_id?: string;
 }
 
+export interface Plan {
+  code: string;
+  name: string;
+  price_cents: number;
+  currency: string;
+  interval: string;
+  max_alerts: number;
+  max_layouts: number;
+  max_indicators: number;
+  history_days: number;
+}
+
+export interface Subscription {
+  user_id: string;
+  plan_code: string;
+  status: string;
+  current_period_end?: string;
+  cancel_at_period_end: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export const TF_SECONDS: Record<Timeframe, number> = {
   "1m": 60,
   "5m": 300,

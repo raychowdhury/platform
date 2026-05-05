@@ -21,6 +21,9 @@ type Config struct {
 	LoginRateWindow time.Duration // window length
 	LoginLockMax    int           // failed attempts before lockout
 	LoginLockFor    time.Duration // lockout duration
+	StripeSecretKey string        // empty = Stripe disabled, dev upgrade enabled
+	BillingSuccessURL string
+	BillingCancelURL  string
 }
 
 func Load() (*Config, error) {
@@ -35,8 +38,11 @@ func Load() (*Config, error) {
 		JWTRefreshTTL:   envDuration("JWT_REFRESH_TTL", 30*24*time.Hour),
 		LoginRateLimit:  envInt("LOGIN_RATE_LIMIT", 10),
 		LoginRateWindow: envDuration("LOGIN_RATE_WINDOW", time.Minute),
-		LoginLockMax:    envInt("LOGIN_LOCK_MAX", 5),
-		LoginLockFor:    envDuration("LOGIN_LOCK_FOR", 15*time.Minute),
+		LoginLockMax:      envInt("LOGIN_LOCK_MAX", 5),
+		LoginLockFor:      envDuration("LOGIN_LOCK_FOR", 15*time.Minute),
+		StripeSecretKey:   envStr("STRIPE_SECRET_KEY", ""),
+		BillingSuccessURL: envStr("BILLING_SUCCESS_URL", "http://localhost:5174/?billing=success"),
+		BillingCancelURL:  envStr("BILLING_CANCEL_URL",  "http://localhost:5174/?billing=cancelled"),
 	}
 	if len(c.JWTSecret) < 32 {
 		return nil, fmt.Errorf("JWT_SECRET must be set and >=32 bytes")

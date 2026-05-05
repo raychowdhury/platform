@@ -11,7 +11,10 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/platform/api/internal/auth"
 )
 
 // WSGateway accepts client WebSocket connections and relays Redis pub/sub
@@ -23,12 +26,13 @@ import (
 //	→ {"action":"unsubscribe","channels":["ticks:BTCUSDT"]}
 //	← {"channel":"ticks:BTCUSDT","data":{...}}
 type WSGateway struct {
-	rdb *redis.Client
-	log *slog.Logger
+	rdb    *redis.Client
+	log    *slog.Logger
+	issuer *auth.TokenIssuer
 }
 
-func NewWSGateway(rdb *redis.Client, log *slog.Logger) *WSGateway {
-	return &WSGateway{rdb: rdb, log: log}
+func NewWSGateway(rdb *redis.Client, log *slog.Logger, issuer *auth.TokenIssuer) *WSGateway {
+	return &WSGateway{rdb: rdb, log: log, issuer: issuer}
 }
 
 type clientMsg struct {
@@ -41,10 +45,23 @@ type serverMsg struct {
 	Data    json.RawMessage `json:"data"`
 }
 
-// allowed channel name prefixes — keeps clients from subscribing to arbitrary keys.
-var allowedPrefixes = []string{"ticks:", "candles:"}
+// allowed public channel name prefixes — anyone can subscribe.
+var publicPrefixes = []string{"ticks:", "candles:"}
 
 func (g *WSGateway) Handle(w http.ResponseWriter, r *http.Request) {
+	// Optional auth: ?token=<access JWT>. Browsers can't set Authorization on
+	// WebSocket handshake, so the token rides in the query string. If absent
+	// or invalid, the connection still opens but private channels (oms:*)
+	// will be rejected.
+	var userID uuid.UUID
+	if tok := r.URL.Query().Get("token"); tok != "" && g.issuer != nil {
+		if claims, err := g.issuer.ParseAccess(tok); err == nil {
+			if uid, err := uuid.Parse(claims.UID); err == nil {
+				userID = uid
+			}
+		}
+	}
+
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true, // CORS handled at chi layer
 	})
@@ -79,7 +96,7 @@ func (g *WSGateway) Handle(w http.ResponseWriter, r *http.Request) {
 			switch strings.ToLower(m.Action) {
 			case "subscribe":
 				for _, c := range m.Channels {
-					if !channelAllowed(c) {
+					if !channelAllowed(c, userID) {
 						continue
 					}
 					if _, ok := subbed.LoadOrStore(c, struct{}{}); ok {
@@ -150,11 +167,19 @@ func writeJSON(ctx context.Context, conn *websocket.Conn, v any) error {
 	return nil
 }
 
-func channelAllowed(name string) bool {
-	for _, p := range allowedPrefixes {
-		if strings.HasPrefix(name, p) && len(name) > len(p) && len(name) < 64 {
+func channelAllowed(name string, userID uuid.UUID) bool {
+	if len(name) == 0 || len(name) >= 128 {
+		return false
+	}
+	for _, p := range publicPrefixes {
+		if strings.HasPrefix(name, p) && len(name) > len(p) {
 			return true
 		}
+	}
+	// Private per-user channels: oms:<user_id>. Only allow if the WS handshake
+	// was authenticated and the requested user_id matches.
+	if strings.HasPrefix(name, "oms:") && userID != uuid.Nil {
+		return name == "oms:"+userID.String()
 	}
 	return false
 }

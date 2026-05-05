@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { StreamTick } from "../api/types";
+import { getAuth } from "../auth/store";
 
 type Status = "connecting" | "open" | "closed";
 
@@ -29,7 +30,9 @@ export function useStream(
 
     const url = (() => {
       const proto = location.protocol === "https:" ? "wss:" : "ws:";
-      return `${proto}//${location.host}/v1/stream`;
+      const { access } = getAuth();
+      const qs = access ? `?token=${encodeURIComponent(access)}` : "";
+      return `${proto}//${location.host}/v1/stream${qs}`;
     })();
 
     const channel = `ticks:${symbol}`;

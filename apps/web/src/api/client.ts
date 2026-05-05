@@ -4,7 +4,9 @@ import type {
   Candle,
   Order,
   PlaceOrderRequest,
+  Plan,
   Position,
+  Subscription,
   Symbol as SymbolMeta,
   TokenPair,
   User,
@@ -118,4 +120,17 @@ export const api = {
 
   cancelOrder: (id: string) =>
     authedFetch(`/v1/orders/${id}`, { method: "DELETE" }).then((r) => asJSON<Order>(r)),
+
+  listPlans: () => authedFetch(`/v1/plans`).then((r) => asJSON<Plan[]>(r)),
+
+  mySubscription: () =>
+    authedFetch(`/v1/billing/subscription`).then((r) => asJSON<Subscription>(r)),
+
+  // Returns subscription on success; in Stripe-enabled mode returns 501 because
+  // the Stripe SDK wiring is intentionally a placeholder. The UI surfaces that.
+  upgradePlan: (plan: string) =>
+    authedFetch(`/v1/billing/upgrade`, {
+      method: "POST",
+      body: JSON.stringify({ plan }),
+    }).then((r) => asJSON<Subscription>(r)),
 };

@@ -15,6 +15,7 @@ import (
 
 	"github.com/platform/api/internal/audit"
 	"github.com/platform/api/internal/auth"
+	"github.com/platform/api/internal/billing"
 	"github.com/platform/api/internal/config"
 	"github.com/platform/api/internal/market"
 	mw "github.com/platform/api/internal/middleware"
@@ -103,7 +104,7 @@ func New(d Deps) http.Handler {
 
 	mktRepo := market.NewRepo(d.DB)
 	mktH := market.NewHandlers(mktRepo)
-	wsGW := market.NewWSGateway(d.Redis, d.Log)
+	wsGW := market.NewWSGateway(d.Redis, d.Log, issuer)
 
 	r.Route("/v1/market", func(r chi.Router) {
 		r.Get("/symbols", mktH.ListSymbols)
@@ -126,6 +127,31 @@ func New(d Deps) http.Handler {
 		r.Get("/fills", omsH.ListFills(uidFromCtx))
 		r.Get("/positions", omsH.ListPositions(uidFromCtx))
 		r.Get("/account", omsH.GetAccount(uidFromCtx))
+	})
+
+	// Billing
+	billingRepo := billing.NewRepo(d.DB)
+	billingSvc := billing.NewService(billingRepo, d.Cfg.StripeSecretKey, d.Cfg.BillingSuccessURL, d.Cfg.BillingCancelURL)
+	billingH := billing.NewHandlers(billingSvc)
+
+	r.Get("/v1/plans", billingH.ListPlans)
+
+	r.Route("/v1/billing", func(r chi.Router) {
+		// Webhook is public (Stripe calls it). Even when unconfigured we accept
+		// the request and respond 501 so callers can detect mode.
+		r.Post("/webhook", billingH.WebhookPlaceholder)
+
+		// Authenticated billing actions.
+		r.Group(func(r chi.Router) {
+			r.Use(requireAuth)
+			r.Get("/subscription", billingH.MySubscription(uidFromCtx))
+			if billingSvc.StripeEnabled() {
+				r.Post("/checkout", billingH.CheckoutPlaceholder)
+				r.Post("/portal",   billingH.PortalPlaceholder)
+			} else {
+				r.Post("/upgrade", billingH.DevUpgrade(uidFromCtx))
+			}
+		})
 	})
 
 	return r
