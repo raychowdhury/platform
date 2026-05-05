@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -182,7 +183,7 @@ func (s *Service) VerifyLoginMFA(ctx context.Context, mfaToken, code, ip, ua str
 }
 
 func (s *Service) Refresh(ctx context.Context, refreshToken, ip, ua string) (*TokenPair, error) {
-	uid, err := s.consumeRefresh(ctx, refreshToken)
+	uid, iat, err := s.consumeRefresh(ctx, refreshToken)
 	if err != nil {
 		return nil, err
 	}
@@ -196,12 +197,42 @@ func (s *Service) Refresh(ctx context.Context, refreshToken, ip, ua string) (*To
 		s.auditor.Record(ctx, &uid, "auth.refresh.fail", ip, ua, map[string]any{"reason": "inactive"})
 		return nil, ErrAccountInactive
 	}
+	if u.TokensInvalidAfter != nil && iat < u.TokensInvalidAfter.Unix() {
+		s.auditor.Record(ctx, &uid, "auth.refresh.fail", ip, ua, map[string]any{"reason": "invalidated"})
+		return nil, ErrTokenNotFound
+	}
 	pair, err := s.issuePair(ctx, uid)
 	if err != nil {
 		return nil, err
 	}
 	s.auditor.Record(ctx, &uid, "auth.refresh", ip, ua, nil)
 	return pair, nil
+}
+
+// InvalidateAllSessions force-logs out a user. Sets tokens_invalid_after just
+// past the current second boundary so any access/refresh token whose iat
+// (second-precision) was minted in or before this second is rejected, while
+// future tokens issued after the next-second tick pass. Called on admin
+// freeze; safe to call repeatedly.
+func (s *Service) InvalidateAllSessions(ctx context.Context, uid uuid.UUID) error {
+	bump := time.Now().Truncate(time.Second).Add(time.Second)
+	return s.repo.SetTokensInvalidAfter(ctx, uid, bump)
+}
+
+// TokensInvalidAfter is read by the auth middleware on every request. Zero
+// time means no invalidation has been recorded.
+func (s *Service) TokensInvalidAfter(ctx context.Context, uid uuid.UUID) (time.Time, error) {
+	t, err := s.repo.GetTokensInvalidAfter(ctx, uid)
+	if err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			return time.Time{}, nil
+		}
+		return time.Time{}, err
+	}
+	if t == nil {
+		return time.Time{}, nil
+	}
+	return *t, nil
 }
 
 func (s *Service) Logout(ctx context.Context, refreshToken, ip, ua string, uid uuid.UUID) error {
@@ -280,6 +311,15 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, token, newPw, ip, ua
 
 // ---------- internal: token helpers ----------
 
+// refreshEnvelope is the Redis value for a live refresh token. Embedding the
+// issued-at lets us reject tokens minted before a tokens_invalid_after bump
+// without enumerating per-user tokens. Older bare-uuid values are still
+// honored (treated as iat=0) so a deploy doesn't kick everyone.
+type refreshEnvelope struct {
+	UID uuid.UUID `json:"uid"`
+	IAT int64     `json:"iat"`
+}
+
 func (s *Service) issuePair(ctx context.Context, uid uuid.UUID) (*TokenPair, error) {
 	access, accessExp, err := s.issuer.IssueAccess(uid)
 	if err != nil {
@@ -289,7 +329,11 @@ func (s *Service) issuePair(ctx context.Context, uid uuid.UUID) (*TokenPair, err
 	if err != nil {
 		return nil, err
 	}
-	if err := s.rdb.Set(ctx, refreshKey(refresh), uid.String(), s.issuer.RefreshTTL()).Err(); err != nil {
+	val, err := json.Marshal(refreshEnvelope{UID: uid, IAT: time.Now().Unix()})
+	if err != nil {
+		return nil, err
+	}
+	if err := s.rdb.Set(ctx, refreshKey(refresh), val, s.issuer.RefreshTTL()).Err(); err != nil {
 		return nil, err
 	}
 	return &TokenPair{
@@ -301,16 +345,21 @@ func (s *Service) issuePair(ctx context.Context, uid uuid.UUID) (*TokenPair, err
 	}, nil
 }
 
-func (s *Service) consumeRefresh(ctx context.Context, token string) (uuid.UUID, error) {
+func (s *Service) consumeRefresh(ctx context.Context, token string) (uuid.UUID, int64, error) {
 	key := refreshKey(token)
 	val, err := s.rdb.GetDel(ctx, key).Result()
 	if errors.Is(err, redis.Nil) {
-		return uuid.Nil, ErrTokenNotFound
+		return uuid.Nil, 0, ErrTokenNotFound
 	}
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, 0, err
 	}
-	return uuid.Parse(val)
+	var env refreshEnvelope
+	if json.Unmarshal([]byte(val), &env) == nil && env.UID != uuid.Nil {
+		return env.UID, env.IAT, nil
+	}
+	id, perr := uuid.Parse(val)
+	return id, 0, perr
 }
 
 func (s *Service) issueOpaqueToken(ctx context.Context, kind string, uid uuid.UUID, ttl time.Duration) (string, error) {

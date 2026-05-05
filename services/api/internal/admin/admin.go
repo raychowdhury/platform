@@ -162,9 +162,21 @@ func (r *Repo) ListAudit(ctx context.Context, limit int) ([]AuditRow, error) {
 
 // ---------- HTTP handlers ----------
 
-type Handlers struct{ repo *Repo }
+// SessionInvalidator force-logs out a user after a status change. Implemented
+// by auth.Service; injected so admin freezes can drop live sessions
+// immediately rather than waiting for access-token expiry (~15min).
+type SessionInvalidator interface {
+	InvalidateAllSessions(ctx context.Context, uid uuid.UUID) error
+}
 
-func NewHandlers(repo *Repo) *Handlers { return &Handlers{repo: repo} }
+type Handlers struct {
+	repo     *Repo
+	sessions SessionInvalidator
+}
+
+func NewHandlers(repo *Repo, sessions SessionInvalidator) *Handlers {
+	return &Handlers{repo: repo, sessions: sessions}
+}
 
 type uidProvider func(*http.Request) uuid.UUID
 
@@ -200,10 +212,14 @@ type statusReq struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-func (h *Handlers) Freeze(uid uidProvider) http.HandlerFunc   { return h.setStatus(uid, "frozen", "admin.user_frozen") }
-func (h *Handlers) Unfreeze(uid uidProvider) http.HandlerFunc { return h.setStatus(uid, "active", "admin.user_unfrozen") }
+func (h *Handlers) Freeze(uid uidProvider) http.HandlerFunc {
+	return h.setStatus(uid, "frozen", "admin.user_frozen", true)
+}
+func (h *Handlers) Unfreeze(uid uidProvider) http.HandlerFunc {
+	return h.setStatus(uid, "active", "admin.user_unfrozen", false)
+}
 
-func (h *Handlers) setStatus(uid uidProvider, status, action string) http.HandlerFunc {
+func (h *Handlers) setStatus(uid uidProvider, status, action string, invalidate bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		target, err := uuid.Parse(chi.URLParam(r, "id"))
 		if err != nil {
@@ -215,6 +231,12 @@ func (h *Handlers) setStatus(uid uidProvider, status, action string) http.Handle
 		if err := h.repo.SetStatus(r.Context(), target, status); err != nil {
 			httputil.WriteError(w, statusFor(err), err.Error())
 			return
+		}
+		if invalidate && h.sessions != nil {
+			if err := h.sessions.InvalidateAllSessions(r.Context(), target); err != nil {
+				httputil.WriteError(w, http.StatusInternalServerError, "freeze applied but session invalidation failed: "+err.Error())
+				return
+			}
 		}
 		meta, _ := json.Marshal(map[string]any{"reason": req.Reason})
 		_ = h.repo.RecordAudit(r.Context(), uid(r), &target, action,

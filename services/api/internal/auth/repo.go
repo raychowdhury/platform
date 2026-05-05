@@ -27,10 +27,10 @@ func (r *Repo) CreateUser(ctx context.Context, email, passwordHash string) (*Use
 		INSERT INTO users (email, password_hash)
 		VALUES ($1, $2)
 		RETURNING id, email, password_hash, status, role, email_verified_at,
-		          failed_login_count, locked_until, last_login_at, created_at, updated_at
+		          failed_login_count, locked_until, last_login_at, tokens_invalid_after, created_at, updated_at
 	`, email, passwordHash).Scan(
 		&u.ID, &u.Email, &u.PasswordHash, &u.Status, &u.Role, &u.EmailVerifiedAt,
-		&u.FailedLoginCount, &u.LockedUntil, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt,
+		&u.FailedLoginCount, &u.LockedUntil, &u.LastLoginAt, &u.TokensInvalidAfter, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if err != nil {
 		// 23505 unique_violation
@@ -46,11 +46,11 @@ func (r *Repo) GetUserByEmail(ctx context.Context, email string) (*User, error) 
 	u := &User{}
 	err := r.db.QueryRow(ctx, `
 		SELECT id, email, password_hash, status, role, email_verified_at,
-		       failed_login_count, locked_until, last_login_at, created_at, updated_at
+		       failed_login_count, locked_until, last_login_at, tokens_invalid_after, created_at, updated_at
 		FROM users WHERE email = $1
 	`, email).Scan(
 		&u.ID, &u.Email, &u.PasswordHash, &u.Status, &u.Role, &u.EmailVerifiedAt,
-		&u.FailedLoginCount, &u.LockedUntil, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt,
+		&u.FailedLoginCount, &u.LockedUntil, &u.LastLoginAt, &u.TokensInvalidAfter, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrUserNotFound
@@ -62,11 +62,11 @@ func (r *Repo) GetUserByID(ctx context.Context, id uuid.UUID) (*User, error) {
 	u := &User{}
 	err := r.db.QueryRow(ctx, `
 		SELECT id, email, password_hash, status, role, email_verified_at,
-		       failed_login_count, locked_until, last_login_at, created_at, updated_at
+		       failed_login_count, locked_until, last_login_at, tokens_invalid_after, created_at, updated_at
 		FROM users WHERE id = $1
 	`, id).Scan(
 		&u.ID, &u.Email, &u.PasswordHash, &u.Status, &u.Role, &u.EmailVerifiedAt,
-		&u.FailedLoginCount, &u.LockedUntil, &u.LastLoginAt, &u.CreatedAt, &u.UpdatedAt,
+		&u.FailedLoginCount, &u.LockedUntil, &u.LastLoginAt, &u.TokensInvalidAfter, &u.CreatedAt, &u.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrUserNotFound
@@ -77,6 +77,26 @@ func (r *Repo) GetUserByID(ctx context.Context, id uuid.UUID) (*User, error) {
 func (r *Repo) UpdatePassword(ctx context.Context, id uuid.UUID, hash string) error {
 	_, err := r.db.Exec(ctx, `UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2`, hash, id)
 	return err
+}
+
+func (r *Repo) SetTokensInvalidAfter(ctx context.Context, id uuid.UUID, t time.Time) error {
+	tag, err := r.db.Exec(ctx, `UPDATE users SET tokens_invalid_after = $1, updated_at = now() WHERE id = $2`, t, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrUserNotFound
+	}
+	return nil
+}
+
+func (r *Repo) GetTokensInvalidAfter(ctx context.Context, id uuid.UUID) (*time.Time, error) {
+	var t *time.Time
+	err := r.db.QueryRow(ctx, `SELECT tokens_invalid_after FROM users WHERE id = $1`, id).Scan(&t)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrUserNotFound
+	}
+	return t, err
 }
 
 func (r *Repo) MarkEmailVerified(ctx context.Context, id uuid.UUID) error {

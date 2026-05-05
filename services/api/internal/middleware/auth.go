@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -30,10 +31,18 @@ type APIKeyAuth struct {
 	Scopes []string
 }
 
+// SessionValidator returns the timestamp before which JWTs for a given user
+// must be rejected. Zero time = no invalidation. Implemented by auth.Service.
+type SessionValidator interface {
+	TokensInvalidAfter(ctx context.Context, uid uuid.UUID) (time.Time, error)
+}
+
 // RequireAuth accepts either an access JWT or an API key prefixed pk_. JWTs
 // give the user every scope; API keys give exactly the scopes recorded on the
-// row, plus an optional IP allowlist enforced here.
-func RequireAuth(issuer *auth.TokenIssuer, keys APIKeyResolver) func(http.Handler) http.Handler {
+// row, plus an optional IP allowlist enforced here. If a SessionValidator is
+// supplied, JWTs whose iat predates the user's tokens_invalid_after bump are
+// rejected (covers admin freeze → immediate force-logout).
+func RequireAuth(issuer *auth.TokenIssuer, keys APIKeyResolver, sessions SessionValidator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h := r.Header.Get("Authorization")
@@ -74,6 +83,20 @@ func RequireAuth(issuer *auth.TokenIssuer, keys APIKeyResolver) func(http.Handle
 			if err != nil {
 				httputil.WriteError(w, http.StatusUnauthorized, "invalid token subject")
 				return
+			}
+			if sessions != nil {
+				invAfter, err := sessions.TokensInvalidAfter(r.Context(), uid)
+				if err != nil {
+					httputil.WriteError(w, http.StatusInternalServerError, "session check failed")
+					return
+				}
+				// Compare in Unix seconds: JWT iat is second-precision, the DB
+				// timestamp is microsecond-precision, so a token minted in the
+				// same wall-clock second as the bump must not be falsely rejected.
+				if !invAfter.IsZero() && claims.IssuedAt != nil && claims.IssuedAt.Time.Unix() < invAfter.Unix() {
+					httputil.WriteError(w, http.StatusUnauthorized, "session invalidated")
+					return
+				}
 			}
 			ctx := context.WithValue(r.Context(), ctxUserID, uid)
 			// JWT-issued sessions implicitly have full scope.

@@ -85,7 +85,7 @@ func New(d Deps) http.Handler {
 
 	apiKeysRepo := apikeys.NewRepo(d.DB)
 	apiKeysResolver := &apiKeyResolverAdapter{repo: apiKeysRepo}
-	requireAuth := mw.RequireAuth(issuer, apiKeysResolver)
+	requireAuth := mw.RequireAuth(issuer, apiKeysResolver, svc)
 	uidFromCtx := func(r *http.Request) uuid.UUID {
 		uid, _ := mw.UserID(r.Context())
 		return uid
@@ -215,7 +215,7 @@ func New(d Deps) http.Handler {
 
 	// Admin (RBAC: role='admin')
 	adminRepo := admin.NewRepo(d.DB)
-	adminH := admin.NewHandlers(adminRepo)
+	adminH := admin.NewHandlers(adminRepo, svc)
 	requireAdmin := mw.RequireRole(d.DB, "admin")
 
 	r.Route("/v1/admin", func(r chi.Router) {

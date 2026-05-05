@@ -7,17 +7,18 @@ import (
 )
 
 type User struct {
-	ID               uuid.UUID
-	Email            string
-	PasswordHash     string
-	Status           string
-	Role             string
-	EmailVerifiedAt  *time.Time
-	FailedLoginCount int
-	LockedUntil      *time.Time
-	LastLoginAt      *time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                 uuid.UUID
+	Email              string
+	PasswordHash       string
+	Status             string
+	Role               string
+	EmailVerifiedAt    *time.Time
+	FailedLoginCount   int
+	LockedUntil        *time.Time
+	LastLoginAt        *time.Time
+	TokensInvalidAfter *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 type TokenPair struct {
