@@ -150,6 +150,8 @@ type orderRow struct {
 	Type         Type
 	LimitPrice   *decimal.Decimal
 	StopPrice    *decimal.Decimal
+	TrailPercent *decimal.Decimal
+	Watermark    *decimal.Decimal
 	Qty          decimal.Decimal
 	FilledQty    decimal.Decimal
 	ReservedCost decimal.Decimal
@@ -170,6 +172,7 @@ func (e *Engine) processSymbol(ctx context.Context, t tickMsg) error {
 
 	rows, err := tx.Query(ctx, `
 		SELECT id, user_id, symbol, side, type, limit_price::text, stop_price::text,
+		       trail_percent::text, watermark::text,
 		       qty::text, filled_qty::text, reserved_cost::text, status
 		FROM orders
 		WHERE symbol = $1 AND status IN ('open','pending')
@@ -182,8 +185,9 @@ func (e *Engine) processSymbol(ctx context.Context, t tickMsg) error {
 	var candidates []orderRow
 	for rows.Next() {
 		var o orderRow
-		var lp, sp, qty, filled, reserved *string
+		var lp, sp, tp, wm, qty, filled, reserved *string
 		if err := rows.Scan(&o.ID, &o.UserID, &o.Symbol, &o.Side, &o.Type, &lp, &sp,
+			&tp, &wm,
 			&qty, &filled, &reserved, &o.Status); err != nil {
 			rows.Close()
 			return err
@@ -194,6 +198,16 @@ func (e *Engine) processSymbol(ctx context.Context, t tickMsg) error {
 			return err
 		}
 		o.StopPrice, err = parseDecPtr(sp)
+		if err != nil {
+			rows.Close()
+			return err
+		}
+		o.TrailPercent, err = parseDecPtr(tp)
+		if err != nil {
+			rows.Close()
+			return err
+		}
+		o.Watermark, err = parseDecPtr(wm)
 		if err != nil {
 			rows.Close()
 			return err
@@ -223,6 +237,12 @@ func (e *Engine) processSymbol(ctx context.Context, t tickMsg) error {
 
 	for i := range candidates {
 		o := &candidates[i]
+		if o.Type == TrailingStop && o.Status == StatusPending {
+			if err := updateTrailingWatermark(ctx, tx, o, tickPrice); err != nil {
+				e.log.Warn("trail update", "order", o.ID, "err", err)
+				continue
+			}
+		}
 		if o.Status == StatusPending {
 			if !stopTriggered(o, tickPrice) {
 				continue
@@ -247,18 +267,73 @@ func (e *Engine) processSymbol(ctx context.Context, t tickMsg) error {
 }
 
 func stopTriggered(o *orderRow, tickPrice decimal.Decimal) bool {
-	if o.Type != StopMarket || o.StopPrice == nil {
+	if o.StopPrice == nil {
+		return false
+	}
+	if o.Type != StopMarket && o.Type != TrailingStop {
 		return false
 	}
 	switch o.Side {
 	case Buy:
-		// Buy stop: trigger when price rises through stop.
+		// Buy (trailing) stop: trigger when price rises through stop.
 		return tickPrice.GreaterThanOrEqual(*o.StopPrice)
 	case Sell:
-		// Sell stop: trigger when price falls through stop.
+		// Sell (trailing) stop: trigger when price falls through stop.
 		return tickPrice.LessThanOrEqual(*o.StopPrice)
 	}
 	return false
+}
+
+// updateTrailingWatermark slides the watermark on a favorable tick and
+// recomputes stop_price = watermark * (1 ∓ trail_percent/100). Sell trail:
+// watermark = max seen, stop = watermark * (1 - tp/100). Buy trail: watermark
+// = min seen, stop = watermark * (1 + tp/100). Both repo and orderRow are
+// updated in place so the same-tick trigger check sees the fresh stop.
+func updateTrailingWatermark(ctx context.Context, tx pgx.Tx, o *orderRow, tickPrice decimal.Decimal) error {
+	if o.TrailPercent == nil || !o.TrailPercent.IsPositive() {
+		return nil
+	}
+	hundred := decimal.NewFromInt(100)
+	one := decimal.NewFromInt(1)
+	mult := o.TrailPercent.Div(hundred)
+
+	wm := o.Watermark
+	moved := false
+	switch o.Side {
+	case Sell:
+		if wm == nil || tickPrice.GreaterThan(*wm) {
+			cp := tickPrice
+			wm = &cp
+			moved = true
+		}
+		if wm == nil {
+			return nil
+		}
+		stop := wm.Mul(one.Sub(mult))
+		o.Watermark = wm
+		o.StopPrice = &stop
+	case Buy:
+		if wm == nil || tickPrice.LessThan(*wm) {
+			cp := tickPrice
+			wm = &cp
+			moved = true
+		}
+		if wm == nil {
+			return nil
+		}
+		stop := wm.Mul(one.Add(mult))
+		o.Watermark = wm
+		o.StopPrice = &stop
+	}
+	if !moved {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `
+		UPDATE orders
+		SET watermark = $1::numeric, stop_price = $2::numeric, updated_at = now()
+		WHERE id = $3
+	`, o.Watermark.String(), o.StopPrice.String(), o.ID)
+	return err
 }
 
 func triggerStop(ctx context.Context, tx pgx.Tx, id uuid.UUID) error {

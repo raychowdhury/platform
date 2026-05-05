@@ -28,6 +28,7 @@ func NewRepo(db *pgxpool.Pool) *Repo { return &Repo{db: db} }
 const orderColumns = `
 	id, user_id, client_order_id, symbol, side, type,
 	limit_price::text, stop_price::text,
+	trail_percent::text, watermark::text,
 	qty::text, filled_qty::text, avg_fill_price::text,
 	reserved_cost::text, status, reject_reason, created_at, updated_at
 `
@@ -53,10 +54,11 @@ func parseDecPtr(s *string) (*decimal.Decimal, error) {
 func scanOrder(row pgx.Row) (*Order, error) {
 	var o Order
 	var coid, reject *string
-	var limit, stop, qty, filled, avg, reserved *string
+	var limit, stop, trail, water, qty, filled, avg, reserved *string
 	if err := row.Scan(
 		&o.ID, &o.UserID, &coid, &o.Symbol, &o.Side, &o.Type,
-		&limit, &stop, &qty, &filled, &avg, &reserved,
+		&limit, &stop, &trail, &water,
+		&qty, &filled, &avg, &reserved,
 		&o.Status, &reject, &o.CreatedAt, &o.UpdatedAt,
 	); err != nil {
 		return nil, err
@@ -68,6 +70,12 @@ func scanOrder(row pgx.Row) (*Order, error) {
 		return nil, err
 	}
 	if o.StopPrice, err = parseDecPtr(stop); err != nil {
+		return nil, err
+	}
+	if o.TrailPercent, err = parseDecPtr(trail); err != nil {
+		return nil, err
+	}
+	if o.Watermark, err = parseDecPtr(water); err != nil {
 		return nil, err
 	}
 	if o.Qty, err = parseDec(qty); err != nil {
@@ -93,6 +101,8 @@ type InsertParams struct {
 	Type          Type
 	LimitPrice    *decimal.Decimal
 	StopPrice     *decimal.Decimal
+	TrailPercent  *decimal.Decimal
+	Watermark     *decimal.Decimal
 	Qty           decimal.Decimal
 	ReservedCost  decimal.Decimal
 	Status        Status
@@ -104,11 +114,13 @@ type InsertParams struct {
 func (r *Repo) InsertOrderTx(ctx context.Context, tx pgx.Tx, p InsertParams) (*Order, error) {
 	row := tx.QueryRow(ctx, `
 		INSERT INTO orders (user_id, client_order_id, symbol, side, type,
-		                    limit_price, stop_price, qty, reserved_cost, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		                    limit_price, stop_price, trail_percent, watermark,
+		                    qty, reserved_cost, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING `+orderColumns,
 		p.UserID, p.ClientOrderID, p.Symbol, p.Side, p.Type,
 		decPtrStr(p.LimitPrice), decPtrStr(p.StopPrice),
+		decPtrStr(p.TrailPercent), decPtrStr(p.Watermark),
 		p.Qty.String(), p.ReservedCost.String(), p.Status,
 	)
 	return scanOrder(row)

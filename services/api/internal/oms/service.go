@@ -12,16 +12,17 @@ import (
 )
 
 var (
-	ErrInvalidSide       = errors.New("invalid side")
-	ErrInvalidType       = errors.New("invalid type")
-	ErrLimitPriceMissing = errors.New("limit_price required for limit orders")
-	ErrLimitPriceUnused  = errors.New("limit_price not allowed for market orders")
-	ErrStopPriceMissing  = errors.New("stop_price required for stop orders")
-	ErrInvalidQty        = errors.New("qty must be > 0")
-	ErrSymbolRequired    = errors.New("symbol required")
-	ErrNoMarkPrice       = errors.New("no recent price available for market order — try again in a moment")
-	ErrInsufficientFunds = errors.New("insufficient available balance")
-	ErrInsufficientQty   = errors.New("insufficient available position qty")
+	ErrInvalidSide        = errors.New("invalid side")
+	ErrInvalidType        = errors.New("invalid type")
+	ErrLimitPriceMissing  = errors.New("limit_price required for limit orders")
+	ErrLimitPriceUnused   = errors.New("limit_price not allowed for market orders")
+	ErrStopPriceMissing   = errors.New("stop_price required for stop orders")
+	ErrTrailPctMissing    = errors.New("trail_percent (0..100) required for trailing_stop")
+	ErrInvalidQty         = errors.New("qty must be > 0")
+	ErrSymbolRequired     = errors.New("symbol required")
+	ErrNoMarkPrice        = errors.New("no recent price available — try again in a moment")
+	ErrInsufficientFunds  = errors.New("insufficient available balance")
+	ErrInsufficientQty    = errors.New("insufficient available position qty")
 )
 
 // marketSlippageBuffer over-reserves market-buy orders to absorb price moves
@@ -44,6 +45,7 @@ type PlaceParams struct {
 	Type          Type
 	LimitPrice    *decimal.Decimal
 	StopPrice     *decimal.Decimal
+	TrailPercent  *decimal.Decimal
 	Qty           decimal.Decimal
 	ClientOrderID *string
 }
@@ -62,14 +64,24 @@ func (s *Service) Place(ctx context.Context, p PlaceParams) (*Order, error) {
 			return nil, ErrLimitPriceMissing
 		}
 		p.StopPrice = nil
+		p.TrailPercent = nil
 	case Market:
 		p.LimitPrice = nil
 		p.StopPrice = nil
+		p.TrailPercent = nil
 	case StopMarket:
 		if p.StopPrice == nil || !p.StopPrice.IsPositive() {
 			return nil, ErrStopPriceMissing
 		}
 		p.LimitPrice = nil
+		p.TrailPercent = nil
+	case TrailingStop:
+		if p.TrailPercent == nil || !p.TrailPercent.IsPositive() ||
+			p.TrailPercent.GreaterThan(decimal.NewFromInt(100)) {
+			return nil, ErrTrailPctMissing
+		}
+		p.LimitPrice = nil
+		p.StopPrice = nil
 	default:
 		return nil, ErrInvalidType
 	}
@@ -89,16 +101,17 @@ func (s *Service) Place(ctx context.Context, p PlaceParams) (*Order, error) {
 			return nil, err
 		}
 		reserved = p.Qty.Mul(ref)
-		if p.Type == Market || p.Type == StopMarket {
+		if p.Type == Market || p.Type == StopMarket || p.Type == TrailingStop {
 			reserved = reserved.Mul(marketSlippageBuffer)
 		}
 	}
 
 	// Initial status:
-	//   stop_market starts as 'pending' — flips to 'open' when stop crosses
-	//   everything else starts 'open'
+	//   stop_market / trailing_stop start as 'pending' — flips to 'open'
+	//   when the stop (computed from watermark for trailing) crosses.
+	//   Everything else starts 'open'.
 	status := StatusOpen
-	if p.Type == StopMarket {
+	if p.Type == StopMarket || p.Type == TrailingStop {
 		status = StatusPending
 	}
 
@@ -162,6 +175,17 @@ func (s *Service) Place(ctx context.Context, p PlaceParams) (*Order, error) {
 		}
 	}
 
+	// For trailing stops: prime watermark with the current mark so the first
+	// tick can already produce a sensible stop. If no mark is available yet
+	// the engine will set it on first tick.
+	var initialWatermark *decimal.Decimal
+	if p.Type == TrailingStop && s.engine != nil {
+		if v, ok := s.engine.LastPrice(p.Symbol); ok {
+			d := decimal.NewFromFloat(v)
+			initialWatermark = &d
+		}
+	}
+
 	o, err := s.repo.InsertOrderTx(ctx, tx, InsertParams{
 		UserID:        p.UserID,
 		ClientOrderID: p.ClientOrderID,
@@ -170,6 +194,8 @@ func (s *Service) Place(ctx context.Context, p PlaceParams) (*Order, error) {
 		Type:          p.Type,
 		LimitPrice:    p.LimitPrice,
 		StopPrice:     p.StopPrice,
+		TrailPercent:  p.TrailPercent,
+		Watermark:     initialWatermark,
 		Qty:           p.Qty,
 		ReservedCost:  reserved,
 		Status:        status,
@@ -208,7 +234,7 @@ func (s *Service) priceForReservation(p PlaceParams) (decimal.Decimal, error) {
 			ref = mark
 		}
 		return ref, nil
-	case Market:
+	case Market, TrailingStop:
 		if mark.IsPositive() {
 			return mark, nil
 		}

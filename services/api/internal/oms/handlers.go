@@ -28,6 +28,7 @@ type placeReq struct {
 	Type          string           `json:"type"`
 	LimitPrice    *decimal.Decimal `json:"limit_price,omitempty"`
 	StopPrice     *decimal.Decimal `json:"stop_price,omitempty"`
+	TrailPercent  *decimal.Decimal `json:"trail_percent,omitempty"`
 	Qty           decimal.Decimal  `json:"qty"`
 }
 
@@ -45,6 +46,7 @@ func (h *Handlers) Place(uid uidProvider) http.HandlerFunc {
 			Type:          Type(strings.ToLower(req.Type)),
 			LimitPrice:    req.LimitPrice,
 			StopPrice:     req.StopPrice,
+			TrailPercent:  req.TrailPercent,
 			Qty:           req.Qty,
 			ClientOrderID: req.ClientOrderID,
 		})
@@ -167,7 +169,7 @@ func statusFor(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, ErrInvalidSide), errors.Is(err, ErrInvalidType),
 		errors.Is(err, ErrLimitPriceMissing), errors.Is(err, ErrLimitPriceUnused),
-		errors.Is(err, ErrStopPriceMissing),
+		errors.Is(err, ErrStopPriceMissing), errors.Is(err, ErrTrailPctMissing),
 		errors.Is(err, ErrInvalidQty), errors.Is(err, ErrSymbolRequired):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrInsufficientFunds), errors.Is(err, ErrInsufficientQty):

@@ -15,9 +15,10 @@ const (
 	Buy  Side = "buy"
 	Sell Side = "sell"
 
-	Market     Type = "market"
-	Limit      Type = "limit"
-	StopMarket Type = "stop_market"
+	Market       Type = "market"
+	Limit        Type = "limit"
+	StopMarket   Type = "stop_market"
+	TrailingStop Type = "trailing_stop"
 
 	StatusOpen      Status = "open"
 	StatusPending   Status = "pending"
@@ -38,6 +39,8 @@ type Order struct {
 	Type          Type             `json:"type"`
 	LimitPrice    *decimal.Decimal `json:"limit_price,omitempty"`
 	StopPrice     *decimal.Decimal `json:"stop_price,omitempty"`
+	TrailPercent  *decimal.Decimal `json:"trail_percent,omitempty"`
+	Watermark     *decimal.Decimal `json:"watermark,omitempty"`
 	Qty           decimal.Decimal  `json:"qty"`
 	FilledQty     decimal.Decimal  `json:"filled_qty"`
 	AvgFillPrice  *decimal.Decimal `json:"avg_fill_price,omitempty"`
