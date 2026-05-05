@@ -32,6 +32,26 @@ services:
       timeout: 3s
       retries: 10
 
+  api:
+    build:
+      context: ./services/api
+    container_name: platform-api
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      API_ADDR: ":8080"
+      POSTGRES_DSN: "postgres://${POSTGRES_USER:-platform}:${POSTGRES_PASSWORD:-platform_dev}@timescaledb:5432/${POSTGRES_DB:-platform}?sslmode=disable"
+      REDIS_ADDR: "redis:6379"
+      JWT_SECRET: "${JWT_SECRET:-dev_secret_change_me_at_least_32_bytes_long}"
+      JWT_ACCESS_TTL: "${JWT_ACCESS_TTL:-15m}"
+      JWT_REFRESH_TTL: "${JWT_REFRESH_TTL:-720h}"
+    ports:
+      - "${API_PORT:-8080}:8080"
+
 volumes:
   timescale_data:
   redis_data:

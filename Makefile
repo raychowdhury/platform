@@ -70,3 +70,39 @@ test: ## run all tests
 .PHONY: clean
 clean: ## remove build artifacts + node_modules
 	rm -rf node_modules apps/*/node_modules apps/*/dist apps/*/.turbo .turbo
+
+# ----- Go services -----
+
+API_DIR := services/api
+
+.PHONY: api-tidy
+api-tidy: ## go mod tidy in services/api
+	cd $(API_DIR) && go mod tidy
+
+.PHONY: api-build
+api-build: ## go build api binary
+	cd $(API_DIR) && go build -o ../../bin/api ./cmd/api
+
+.PHONY: api-run
+api-run: ## run api locally (needs .env + infra up)
+	set -a; [ -f .env ] && . ./.env; set +a; cd $(API_DIR) && go run ./cmd/api
+
+.PHONY: api-vet
+api-vet: ## go vet api
+	cd $(API_DIR) && go vet ./...
+
+.PHONY: api-test
+api-test: ## go test api
+	cd $(API_DIR) && go test ./... -count=1
+
+.PHONY: api-image
+api-image: ## build api docker image
+	docker compose build api
+
+.PHONY: api-up
+api-up: ## bring up api + infra
+	docker compose up -d --build api
+
+.PHONY: api-logs
+api-logs: ## tail api logs
+	docker compose logs -f --tail=200 api

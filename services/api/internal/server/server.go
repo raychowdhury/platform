@@ -1,0 +1,120 @@
+package server
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
+
+	"github.com/platform/api/internal/audit"
+	"github.com/platform/api/internal/auth"
+	"github.com/platform/api/internal/config"
+	mw "github.com/platform/api/internal/middleware"
+)
+
+type Deps struct {
+	Cfg   *config.Config
+	Log   *slog.Logger
+	DB    *pgxpool.Pool
+	Redis *redis.Client
+}
+
+func New(d Deps) http.Handler {
+	r := chi.NewRouter()
+
+	r.Use(chimw.RequestID)
+	r.Use(chimw.RealIP)
+	r.Use(chimw.Recoverer)
+	r.Use(slogRequestLogger(d.Log))
+	r.Use(chimw.Timeout(15 * time.Second))
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type", "X-Requested-With"},
+		ExposedHeaders:   []string{"X-RateLimit-Limit", "X-RateLimit-Remaining", "Retry-After"},
+		AllowCredentials: false,
+		MaxAge:           300,
+	}))
+
+	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+
+	r.Get("/readyz", func(w http.ResponseWriter, req *http.Request) {
+		ctx, cancel := context.WithTimeout(req.Context(), 2*time.Second)
+		defer cancel()
+		if err := d.DB.Ping(ctx); err != nil {
+			http.Error(w, "db not ready", http.StatusServiceUnavailable)
+			return
+		}
+		if err := d.Redis.Ping(ctx).Err(); err != nil {
+			http.Error(w, "redis not ready", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ready"}`))
+	})
+
+	auditor := audit.NewRecorder(d.DB, d.Log)
+	repo := auth.NewRepo(d.DB)
+	issuer := auth.NewTokenIssuer(d.Cfg.JWTSecret, d.Cfg.JWTAccessTTL, d.Cfg.JWTRefreshTTL)
+	svc := auth.NewService(repo, d.Redis, issuer, auditor, d.Cfg.LoginLockMax, d.Cfg.LoginLockFor)
+	h := auth.NewHandlers(svc, repo)
+
+	authIPLimit := mw.FixedWindow(d.Redis, "auth", d.Cfg.LoginRateLimit, d.Cfg.LoginRateWindow, mw.KeyByClientIP)
+	requireAuth := mw.RequireAuth(issuer)
+	uidFromCtx := func(r *http.Request) uuid.UUID {
+		uid, _ := mw.UserID(r.Context())
+		return uid
+	}
+
+	r.Route("/v1/auth", func(r chi.Router) {
+		r.Group(func(r chi.Router) {
+			r.Use(authIPLimit)
+			r.Post("/signup", h.Signup)
+			r.Post("/login", h.Login)
+			r.Post("/refresh", h.Refresh)
+			r.Post("/verify-email", h.VerifyEmail)
+			r.Post("/password/reset", h.RequestPasswordReset)
+			r.Post("/password/reset/confirm", h.ConfirmPasswordReset)
+		})
+		r.Group(func(r chi.Router) {
+			r.Use(requireAuth)
+			r.Post("/logout", h.Logout(uidFromCtx))
+			r.Post("/password/change", h.ChangePassword(uidFromCtx))
+		})
+	})
+
+	r.Route("/v1/me", func(r chi.Router) {
+		r.Use(requireAuth)
+		r.Get("/", h.Me(uidFromCtx))
+	})
+
+	return r
+}
+
+func slogRequestLogger(log *slog.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ww := chimw.NewWrapResponseWriter(w, r.ProtoMajor)
+			start := time.Now()
+			next.ServeHTTP(ww, r)
+			log.Info("http",
+				"method", r.Method,
+				"path", r.URL.Path,
+				"status", ww.Status(),
+				"bytes", ww.BytesWritten(),
+				"dur_ms", time.Since(start).Milliseconds(),
+				"req_id", chimw.GetReqID(r.Context()),
+			)
+		})
+	}
+}
