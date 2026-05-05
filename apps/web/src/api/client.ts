@@ -9,6 +9,8 @@ import type {
   ApiKeyCreateRequest,
   ApiKeyCreated,
   Candle,
+  Drawing,
+  DrawingCreateRequest,
   Layout,
   LayoutSaveRequest,
   LoginResponse,
@@ -216,5 +218,13 @@ export const api = {
     authedFetch(`/v1/me/api-keys`, { method: "POST", body: JSON.stringify(req) }).then((r) => asJSON<ApiKeyCreated>(r)),
   revokeApiKey: (id: string) =>
     authedFetch(`/v1/me/api-keys/${id}`, { method: "DELETE" })
+      .then((r) => { if (!r.ok && r.status !== 204) throw new Error(`${r.status}`); }),
+
+  listDrawings: (symbol: string) =>
+    authedFetch(`/v1/drawings/?symbol=${encodeURIComponent(symbol)}`).then((r) => asJSON<Drawing[]>(r)),
+  createDrawing: (req: DrawingCreateRequest) =>
+    authedFetch(`/v1/drawings/`, { method: "POST", body: JSON.stringify(req) }).then((r) => asJSON<Drawing>(r)),
+  deleteDrawing: (id: string) =>
+    authedFetch(`/v1/drawings/${id}`, { method: "DELETE" })
       .then((r) => { if (!r.ok && r.status !== 204) throw new Error(`${r.status}`); }),
 };

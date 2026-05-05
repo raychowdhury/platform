@@ -27,15 +27,27 @@ export interface CandleBar {
 export type IndicatorKey = "ma20" | "ma50" | "ema12" | "ema26";
 export type OscillatorKey = "rsi" | "macd";
 
+export interface PriceLineSpec {
+  id: string;
+  price: number;
+  color: string;
+  label?: string;
+}
+
 export interface ChartHandle {
   setHistory: (bars: CandleBar[]) => void;
   upsertBar: (bar: CandleBar) => void;
   setIndicator: (key: IndicatorKey, points: LinePoint[] | null) => void;
   setOscillator: (key: OscillatorKey | null, payload: LinePoint[] | MACDSeries | null) => void;
+  setPriceLines: (lines: PriceLineSpec[]) => void;
+  // priceFromY converts a pixel-y on the candle pane to a price using the
+  // candlestick series' price scale. Returns null if outside the visible range.
+  priceFromY: (y: number) => number | null;
 }
 
 interface Props {
   onReady: (handle: ChartHandle) => void;
+  onClick?: (price: number, y: number) => void;
 }
 
 const INDICATOR_COLORS: Record<IndicatorKey, string> = {
@@ -53,9 +65,11 @@ const COMMON_OPTS = {
   timeScale: { borderColor: "#1e222d", timeVisible: true, secondsVisible: false },
 };
 
-export default function Chart({ onReady }: Props) {
+export default function Chart({ onReady, onClick }: Props) {
   const mainHostRef = useRef<HTMLDivElement>(null);
   const oscHostRef = useRef<HTMLDivElement>(null);
+  const onClickRef = useRef(onClick);
+  onClickRef.current = onClick;
 
   useEffect(() => {
     if (!mainHostRef.current || !oscHostRef.current) return;
@@ -105,6 +119,17 @@ export default function Chart({ onReady }: Props) {
       for (const s of oscSeries) osc.removeSeries(s);
       oscSeries = [];
     };
+
+    // price lines (drawings)
+    const priceLines = new Map<string, ReturnType<typeof candles.createPriceLine>>();
+
+    // click → main-pane price
+    main.subscribeClick((p) => {
+      if (!onClickRef.current || !p.point) return;
+      const price = candles.coordinateToPrice(p.point.y);
+      if (price == null) return;
+      onClickRef.current(Number(price), p.point.y);
+    });
 
     onReady({
       setHistory: (bars) => {
@@ -203,6 +228,33 @@ export default function Chart({ onReady }: Props) {
             color: p.value >= 0 ? "#26a69a88" : "#ef535088",
           })));
         }
+      },
+      setPriceLines: (lines) => {
+        const wantIDs = new Set(lines.map((l) => l.id));
+        // remove dropped
+        for (const [id, line] of priceLines) {
+          if (!wantIDs.has(id)) {
+            candles.removePriceLine(line);
+            priceLines.delete(id);
+          }
+        }
+        // add new
+        for (const l of lines) {
+          if (priceLines.has(l.id)) continue;
+          const line = candles.createPriceLine({
+            price: l.price,
+            color: l.color,
+            lineWidth: 1,
+            lineStyle: LineStyle.Solid,
+            axisLabelVisible: true,
+            title: l.label ?? "",
+          });
+          priceLines.set(l.id, line);
+        }
+      },
+      priceFromY: (y) => {
+        const v = candles.coordinateToPrice(y);
+        return v == null ? null : Number(v);
       },
     });
 

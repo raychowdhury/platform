@@ -76,6 +76,7 @@ a:hover { text-decoration: underline; }
 }
 
 .chart-host { width: 100%; height: 100%; }
+.chart-cell.draw-mode, .chart-cell.draw-mode .chart-host { cursor: crosshair; }
 
 .chart-stack { display: flex; flex-direction: column; width: 100%; height: 100%; }
 .chart-stack .chart-host.main { flex: 1; min-height: 0; }

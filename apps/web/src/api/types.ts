@@ -28,6 +28,25 @@ export interface AdminUser {
   locked: number;
 }
 
+export interface Drawing {
+  id: string;
+  user_id: string;
+  symbol: string;
+  type: "price_line";
+  price: number;
+  color: string;
+  label?: string;
+  created_at: string;
+}
+
+export interface DrawingCreateRequest {
+  symbol: string;
+  type: "price_line";
+  price: number;
+  color?: string;
+  label?: string;
+}
+
 export interface ApiKey {
   id: string;
   user_id: string;

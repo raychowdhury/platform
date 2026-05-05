@@ -6,6 +6,7 @@ import type {
   Account,
   Alert,
   Candle,
+  Drawing,
   Order,
   Plan,
   Position,
@@ -66,6 +67,8 @@ export default function MarketPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [notifTick, setNotifTick] = useState(0);
   const [role, setRole] = useState<string>("user");
+  const [drawings, setDrawings] = useState<Drawing[]>([]);
+  const [drawMode, setDrawMode] = useState(false);
   const marksRef = useRef<Map<string, number>>(new Map());
   const [marks, setMarks] = useState<Map<string, number>>(new Map());
 
@@ -185,6 +188,43 @@ export default function MarketPage() {
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
   useEffect(() => { refreshIndicators(); }, [active, oscillator, refreshIndicators]);
+
+  // load drawings whenever symbol changes
+  useEffect(() => {
+    if (!symbol) return;
+    let cancelled = false;
+    api.listDrawings(symbol).then((ds) => { if (!cancelled) setDrawings(ds); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [symbol]);
+
+  // push drawings to chart whenever they change
+  useEffect(() => {
+    chartRef.current?.setPriceLines(drawings.map((d) => ({
+      id: d.id, price: d.price, color: d.color, label: d.label,
+    })));
+  }, [drawings]);
+
+  // click handler — only acts in draw mode
+  const onChartClick = useCallback(async (price: number) => {
+    if (!drawMode || !symbol) return;
+    try {
+      const d = await api.createDrawing({ symbol, type: "price_line", price, label: price.toFixed(2) });
+      setDrawings((cur) => [...cur, d]);
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDrawMode(false);
+    }
+  }, [drawMode, symbol]);
+
+  const removeDrawing = useCallback(async (id: string) => {
+    try {
+      await api.deleteDrawing(id);
+      setDrawings((cur) => cur.filter((d) => d.id !== id));
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
 
   const onTick = useCallback((t: StreamTick) => {
     // update mark for any symbol that streams (positions panel uses these)
@@ -323,6 +363,13 @@ export default function MarketPage() {
             {k.toUpperCase()}
           </button>
         ))}
+        <button
+          onClick={() => setDrawMode((d) => !d)}
+          style={{ opacity: drawMode ? 1 : 0.55 }}
+          title="click chart to add a horizontal price line"
+        >
+          {drawMode ? "click chart…" : "+ line"}
+        </button>
         <span className="account-summary">
           {account != null ? (
             <>
@@ -341,12 +388,27 @@ export default function MarketPage() {
         {err && <span className="error">{err}</span>}
         <button onClick={async () => { await api.logout(); clearAuth(); location.href = "/login"; }}>logout</button>
       </div>
-      <div className={`chart-cell ${oscillator ? "has-osc" : ""}`}>
-        <Chart onReady={onChartReady} />
+      <div className={`chart-cell ${oscillator ? "has-osc" : ""} ${drawMode ? "draw-mode" : ""}`}>
+        <Chart onReady={onChartReady} onClick={onChartClick} />
       </div>
       <aside className="sidebar">
         <Ticket symbol={symbol} lastPrice={lastPrice} onPlaced={refreshOms} />
         <AlertsPanel symbol={symbol} alerts={alerts} lastPrice={lastPrice} onChanged={refreshOms} />
+        {drawings.length > 0 && (
+          <div className="panel">
+            <div className="panel-title">Lines — {symbol}</div>
+            <table className="oms-table">
+              <tbody>
+                {drawings.map((d) => (
+                  <tr key={d.id}>
+                    <td><span style={{ color: d.color }}>━</span> {d.price.toFixed(2)}</td>
+                    <td><button className="link" onClick={() => removeDrawing(d.id)}>×</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
         <PositionsPanel positions={positions} marks={marks} />
         <OrdersPanel orders={orders} onChanged={refreshOms} />
       </aside>

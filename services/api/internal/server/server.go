@@ -20,6 +20,7 @@ import (
 	"github.com/platform/api/internal/auth"
 	"github.com/platform/api/internal/billing"
 	"github.com/platform/api/internal/config"
+	"github.com/platform/api/internal/drawings"
 	"github.com/platform/api/internal/entitlements"
 	"github.com/platform/api/internal/layouts"
 	"github.com/platform/api/internal/market"
@@ -199,6 +200,17 @@ func New(d Deps) http.Handler {
 		r.Get("/{id}", layoutsH.Get(uidFromCtx))
 		r.Put("/{id}", layoutsH.Update(uidFromCtx))
 		r.Delete("/{id}", layoutsH.Delete(uidFromCtx))
+	})
+
+	// Drawings
+	drawingsRepo := drawings.NewRepo(d.DB)
+	drawingsH := drawings.NewHandlers(drawingsRepo)
+
+	r.Route("/v1/drawings", func(r chi.Router) {
+		r.Use(requireAuth)
+		r.Get("/", drawingsH.List(uidFromCtx))
+		r.Post("/", drawingsH.Create(uidFromCtx))
+		r.Delete("/{id}", drawingsH.Delete(uidFromCtx))
 	})
 
 	// Admin (RBAC: role='admin')
