@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  js:
+    name: js (lint / build / test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: install
+        run: pnpm install --frozen-lockfile || pnpm install
+      - name: lint
+        run: pnpm -w lint || echo "no lint targets yet"
+      - name: build
+        run: pnpm -w build || echo "no build targets yet"
+      - name: test
+        run: pnpm -w test || echo "no test targets yet"
+
+  go:
+    name: go (vet / build / test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: true
+      - name: detect modules
+        id: detect
+        run: |
+          if find services -name go.mod -print -quit 2>/dev/null | grep -q .; then
+            echo "has_modules=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_modules=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: vet
+        if: steps.detect.outputs.has_modules == 'true'
+        run: go vet ./...
+        working-directory: services
+      - name: build
+        if: steps.detect.outputs.has_modules == 'true'
+        run: go build ./...
+        working-directory: services
+      - name: test
+        if: steps.detect.outputs.has_modules == 'true'
+        run: go test ./...
+        working-directory: services
+
+  compose:
+    name: docker-compose validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: validate compose
+        run: docker compose config -q

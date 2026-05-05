@@ -1,0 +1,41 @@
+# deps
+node_modules/
+.pnpm-store/
+
+# build
+dist/
+build/
+out/
+.turbo/
+.next/
+.vite/
+
+# go
+bin/
+vendor/
+*.test
+*.out
+
+# env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# os
+.DS_Store
+Thumbs.db
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# docker volumes (mounted)
+.data/
