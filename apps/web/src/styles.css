@@ -157,3 +157,15 @@ a:hover { text-decoration: underline; }
 .plan-price .muted { font-size: 13px; font-weight: 400; margin-left: 4px; }
 .plan-feats { list-style: none; padding: 0; margin: 0 0 16px; font-size: 13px; }
 .plan-feats li { padding: 4px 0; color: var(--text); border-bottom: 1px solid #181b25; }
+
+/* alerts form */
+.alert-form .seg button { padding: 4px 0; font-size: 12px; }
+.alert-form button[type="submit"] { margin-top: 4px; }
+
+/* toast */
+.toast {
+  position: fixed; right: 24px; bottom: 24px; z-index: 100;
+  background: #1b3d2f; color: #26a69a; border: 1px solid #26a69a;
+  padding: 12px 16px; border-radius: 6px; font-size: 14px; max-width: 360px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+}

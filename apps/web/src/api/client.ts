@@ -1,6 +1,8 @@
 import { getAuth, useAuth } from "../auth/store";
 import type {
   Account,
+  Alert,
+  AlertCreateRequest,
   Candle,
   LoginResponse,
   MFASetupResponse,
@@ -153,4 +155,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ plan }),
     }).then((r) => asJSON<Subscription>(r)),
+
+  listAlerts: () => authedFetch(`/v1/alerts/`).then((r) => asJSON<Alert[]>(r)),
+  createAlert: (req: AlertCreateRequest) =>
+    authedFetch(`/v1/alerts/`, { method: "POST", body: JSON.stringify(req) }).then((r) => asJSON<Alert>(r)),
+  deleteAlert: (id: string) =>
+    authedFetch(`/v1/alerts/${id}`, { method: "DELETE" })
+      .then((r) => { if (!r.ok) throw new Error(`${r.status}`); }),
 };

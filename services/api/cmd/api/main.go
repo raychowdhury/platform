@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/platform/api/internal/alerts"
 	"github.com/platform/api/internal/config"
 	"github.com/platform/api/internal/oms"
 	"github.com/platform/api/internal/server"
@@ -58,7 +59,18 @@ func main() {
 		}
 	}()
 
-	handler := server.New(server.Deps{Cfg: cfg, Log: log, DB: pg.Pool, Redis: rdb, Engine: engine})
+	alertsRepo := alerts.NewRepo(pg.Pool)
+	alertsEngine := alerts.NewEngine(pg.Pool, rdb, alertsRepo, log)
+	go func() {
+		if err := alertsEngine.Run(rootCtx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Error("alerts engine", "err", err)
+		}
+	}()
+
+	handler := server.New(server.Deps{
+		Cfg: cfg, Log: log, DB: pg.Pool, Redis: rdb,
+		Engine: engine, AlertsEngine: alertsEngine,
+	})
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,

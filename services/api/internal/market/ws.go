@@ -176,10 +176,12 @@ func channelAllowed(name string, userID uuid.UUID) bool {
 			return true
 		}
 	}
-	// Private per-user channels: oms:<user_id>. Only allow if the WS handshake
-	// was authenticated and the requested user_id matches.
-	if strings.HasPrefix(name, "oms:") && userID != uuid.Nil {
-		return name == "oms:"+userID.String()
+	// Private per-user channels: oms:<uid>, alerts:<uid>. Require auth + match.
+	if userID != uuid.Nil {
+		uid := userID.String()
+		if name == "oms:"+uid || name == "alerts:"+uid {
+			return true
+		}
 	}
 	return false
 }

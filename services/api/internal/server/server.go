@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/platform/api/internal/alerts"
 	"github.com/platform/api/internal/audit"
 	"github.com/platform/api/internal/auth"
 	"github.com/platform/api/internal/billing"
@@ -24,11 +25,12 @@ import (
 )
 
 type Deps struct {
-	Cfg    *config.Config
-	Log    *slog.Logger
-	DB     *pgxpool.Pool
-	Redis  *redis.Client
-	Engine *oms.Engine
+	Cfg          *config.Config
+	Log          *slog.Logger
+	DB           *pgxpool.Pool
+	Redis        *redis.Client
+	Engine       *oms.Engine
+	AlertsEngine *alerts.Engine
 }
 
 func New(d Deps) http.Handler {
@@ -143,6 +145,18 @@ func New(d Deps) http.Handler {
 	billingH := billing.NewHandlers(billingSvc)
 
 	r.Get("/v1/plans", billingH.ListPlans)
+
+	// Alerts
+	alertsRepo := alerts.NewRepo(d.DB)
+	alertsSvc := alerts.NewService(alertsRepo, ent, d.AlertsEngine)
+	alertsH := alerts.NewHandlers(alertsSvc)
+
+	r.Route("/v1/alerts", func(r chi.Router) {
+		r.Use(requireAuth)
+		r.Post("/", alertsH.Create(uidFromCtx))
+		r.Get("/", alertsH.List(uidFromCtx))
+		r.Delete("/{id}", alertsH.Delete(uidFromCtx))
+	})
 
 	r.Route("/v1/billing", func(r chi.Router) {
 		// Webhook is public (Stripe calls it). Even when unconfigured we accept

@@ -132,6 +132,30 @@ export interface MFASetupResponse {
   recovery_codes: string[];
 }
 
+export type AlertCondition = "price_above" | "price_below";
+export type AlertStatus = "active" | "triggered" | "disabled";
+
+export interface Alert {
+  id: string;
+  user_id: string;
+  symbol: string;
+  condition: AlertCondition;
+  threshold: number;
+  status: AlertStatus;
+  note?: string;
+  triggered_at?: string;
+  triggered_price?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AlertCreateRequest {
+  symbol: string;
+  condition: AlertCondition;
+  threshold: number;
+  note?: string;
+}
+
 export const TF_SECONDS: Record<Timeframe, number> = {
   "1m": 60,
   "5m": 300,

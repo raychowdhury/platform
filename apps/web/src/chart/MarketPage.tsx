@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import { useAuth } from "../auth/store";
 import type {
   Account,
+  Alert,
   Candle,
   Order,
   Plan,
@@ -21,6 +22,8 @@ import Ticket from "../oms/Ticket";
 import PositionsPanel from "../oms/PositionsPanel";
 import OrdersPanel from "../oms/OrdersPanel";
 import { useOmsStream } from "../oms/useOmsStream";
+import AlertsPanel from "../alerts/AlertsPanel";
+import { useAlertsStream } from "../alerts/useAlertsStream";
 
 const TFS: Timeframe[] = ["1m", "5m", "15m", "30m", "1h", "4h", "8h", "1d", "1w"];
 
@@ -57,6 +60,8 @@ export default function MarketPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [toast, setToast] = useState<string | null>(null);
   const marksRef = useRef<Map<string, number>>(new Map());
   const [marks, setMarks] = useState<Map<string, number>>(new Map());
 
@@ -87,15 +92,17 @@ export default function MarketPage() {
 
   const refreshOms = useCallback(async () => {
     try {
-      const [a, p, o, s] = await Promise.all([
+      const [a, p, o, s, al] = await Promise.all([
         api.account(),
         api.positions(),
         api.orders(undefined, 50),
         api.mySubscription().catch(() => null),
+        api.listAlerts().catch(() => [] as Alert[]),
       ]);
       setAccount(a);
       setPositions(p);
       setOrders(o);
+      setAlerts(al);
       setUserId(a.user_id);
       if (s) setSub(s);
     } catch (e: unknown) {
@@ -112,6 +119,12 @@ export default function MarketPage() {
   }, [refreshOms]);
 
   useOmsStream(userId, () => { refreshOms(); });
+  useAlertsStream(userId, (e) => {
+    const arrow = e.condition === "price_above" ? "≥" : "≤";
+    setToast(`🔔 ${e.symbol} ${arrow} ${e.threshold} (now ${e.price.toFixed(2)})`);
+    refreshOms();
+    window.setTimeout(() => setToast(null), 6000);
+  });
 
   const refreshIndicators = useCallback(() => {
     const handle = chartRef.current;
@@ -302,9 +315,11 @@ export default function MarketPage() {
       </div>
       <aside className="sidebar">
         <Ticket symbol={symbol} lastPrice={lastPrice} onPlaced={refreshOms} />
+        <AlertsPanel symbol={symbol} alerts={alerts} lastPrice={lastPrice} onChanged={refreshOms} />
         <PositionsPanel positions={positions} marks={marks} />
         <OrdersPanel orders={orders} onChanged={refreshOms} />
       </aside>
+      {toast && <div className="toast">{toast}</div>}
     </div>
   );
 }
