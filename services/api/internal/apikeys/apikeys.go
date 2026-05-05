@@ -53,14 +53,21 @@ type Created struct {
 	*Key
 	// Secret is the plaintext key string — shown to the user exactly once.
 	Secret string `json:"secret"`
+	// SigningSecret is the HMAC-SHA256 key. Empty for legacy bearer-only
+	// keys. Returned exactly once at creation time; clients must persist it
+	// alongside Secret to authenticate future requests.
+	SigningSecret string `json:"signing_secret,omitempty"`
 }
 
 // AuthLookup is what the auth middleware needs from this package: resolve a
 // raw bearer string into a user + scopes. Returns nil, nil if not an API key
-// (so the middleware can fall through to JWT validation).
+// (so the middleware can fall through to JWT validation). When SigningSecret
+// is non-empty the caller MUST verify an HMAC signature in addition to the
+// bearer match — the middleware enforces this.
 type AuthLookup struct {
-	UserID uuid.UUID
-	Scopes []string
+	UserID        uuid.UUID
+	Scopes        []string
+	SigningSecret string
 }
 
 // ---------- Repo ----------
@@ -97,20 +104,24 @@ func (r *Repo) Create(ctx context.Context, userID uuid.UUID, name string, scopes
 	if err != nil {
 		return nil, err
 	}
+	signingSecret, err := mintSigningSecret()
+	if err != nil {
+		return nil, err
+	}
 	var k Key
 	err = r.db.QueryRow(ctx, `
-		INSERT INTO api_keys (user_id, name, prefix, secret_hash, scopes, ip_allowlist, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO api_keys (user_id, name, prefix, secret_hash, scopes, ip_allowlist, expires_at, signing_secret)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, user_id, name, prefix, scopes, ip_allowlist,
 		          last_used_at, expires_at, revoked_at, created_at
-	`, userID, name, prefix, hash, scopes, ipList, expiresAt).Scan(
+	`, userID, name, prefix, hash, scopes, ipList, expiresAt, signingSecret).Scan(
 		&k.ID, &k.UserID, &k.Name, &k.Prefix, &k.Scopes, &k.IPAllowlist,
 		&k.LastUsedAt, &k.ExpiresAt, &k.RevokedAt, &k.CreatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
-	return &Created{Key: &k, Secret: full}, nil
+	return &Created{Key: &k, Secret: full, SigningSecret: signingSecret}, nil
 }
 
 func (r *Repo) Revoke(ctx context.Context, userID, id uuid.UUID) error {
@@ -135,17 +146,18 @@ func (r *Repo) LookupByPlaintext(ctx context.Context, plaintext string) (*AuthLo
 	}
 	hash := hashKey(plaintext)
 	var (
-		userID uuid.UUID
-		id     uuid.UUID
-		scopes []string
-		ipList []string
-		exp    *time.Time
-		rev    *time.Time
+		userID  uuid.UUID
+		id      uuid.UUID
+		scopes  []string
+		ipList  []string
+		exp     *time.Time
+		rev     *time.Time
+		signing *string
 	)
 	err := r.db.QueryRow(ctx, `
-		SELECT id, user_id, scopes, ip_allowlist, expires_at, revoked_at
+		SELECT id, user_id, scopes, ip_allowlist, expires_at, revoked_at, signing_secret
 		FROM api_keys WHERE secret_hash = $1
-	`, hash).Scan(&id, &userID, &scopes, &ipList, &exp, &rev)
+	`, hash).Scan(&id, &userID, &scopes, &ipList, &exp, &rev, &signing)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil, nil
 	}
@@ -160,7 +172,11 @@ func (r *Repo) LookupByPlaintext(ctx context.Context, plaintext string) (*AuthLo
 	}
 	// best-effort touch
 	_, _ = r.db.Exec(ctx, `UPDATE api_keys SET last_used_at = now() WHERE id = $1`, id)
-	return &AuthLookup{UserID: userID, Scopes: scopes}, ipList, nil
+	out := &AuthLookup{UserID: userID, Scopes: scopes}
+	if signing != nil {
+		out.SigningSecret = *signing
+	}
+	return out, ipList, nil
 }
 
 // ---------- helpers ----------
@@ -174,6 +190,15 @@ func mintKey() (full, prefix, hash string, err error) {
 	prefix = full[:prefixLen]
 	hash = hashKey(full)
 	return
+}
+
+// mintSigningSecret returns a 32-byte HMAC-SHA256 signing key, base64url-encoded.
+func mintSigningSecret() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 func hashKey(s string) string {

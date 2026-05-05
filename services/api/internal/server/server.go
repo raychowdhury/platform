@@ -260,7 +260,11 @@ func (a *apiKeyResolverAdapter) LookupByPlaintext(ctx context.Context, plaintext
 	if err != nil || l == nil {
 		return nil, ips, err
 	}
-	return &mw.APIKeyAuth{UserID: l.UserID, Scopes: l.Scopes}, ips, nil
+	return &mw.APIKeyAuth{
+		UserID:        l.UserID,
+		Scopes:        l.Scopes,
+		SigningSecret: l.SigningSecret,
+	}, ips, nil
 }
 
 func slogRequestLogger(log *slog.Logger) func(http.Handler) http.Handler {
