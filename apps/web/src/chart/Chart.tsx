@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 import {
   createChart,
+  CandlestickSeries,
+  HistogramSeries,
+  LineSeries,
   ColorType,
   CrosshairMode,
   LineStyle,
@@ -14,6 +17,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import type { LinePoint, MACDSeries } from "./indicators";
+import { TrendLinePrimitive, type TrendLineSpec } from "./trendline";
 
 export interface CandleBar {
   time: number; // unix seconds (UTC)
@@ -40,6 +44,7 @@ export interface ChartHandle {
   setIndicator: (key: IndicatorKey, points: LinePoint[] | null) => void;
   setOscillator: (key: OscillatorKey | null, payload: LinePoint[] | MACDSeries | null) => void;
   setPriceLines: (lines: PriceLineSpec[]) => void;
+  setTrendLines: (lines: TrendLineSpec[]) => void;
   // priceFromY converts a pixel-y on the candle pane to a price using the
   // candlestick series' price scale. Returns null if outside the visible range.
   priceFromY: (y: number) => number | null;
@@ -93,12 +98,12 @@ export default function Chart({ onReady, onClick, onCrosshairTime }: Props) {
       timeScale: { ...COMMON_OPTS.timeScale, visible: false }, // main owns the time axis
     });
 
-    const candles = main.addCandlestickSeries({
+    const candles = main.addSeries(CandlestickSeries, {
       upColor: "#26a69a", downColor: "#ef5350",
       wickUpColor: "#26a69a", wickDownColor: "#ef5350",
       borderVisible: false,
     });
-    const volume = main.addHistogramSeries({
+    const volume = main.addSeries(HistogramSeries, {
       priceFormat: { type: "volume" },
       priceScaleId: "volume",
       color: "#26a69a55",
@@ -134,6 +139,9 @@ export default function Chart({ onReady, onClick, onCrosshairTime }: Props) {
 
     // price lines (drawings)
     const priceLines = new Map<string, ReturnType<typeof candles.createPriceLine>>();
+
+    // trendlines: id → primitive instance attached to candles
+    const trendLines = new Map<string, TrendLinePrimitive>();
 
     // click → main-pane price
     main.subscribeClick((p) => {
@@ -189,7 +197,7 @@ export default function Chart({ onReady, onClick, onCrosshairTime }: Props) {
           return;
         }
         if (!s) {
-          s = main.addLineSeries({
+          s = main.addSeries(LineSeries, {
             color: INDICATOR_COLORS[key],
             lineWidth: 2,
             lineStyle: LineStyle.Solid,
@@ -218,7 +226,7 @@ export default function Chart({ onReady, onClick, onCrosshairTime }: Props) {
           const points = payload as LinePoint[];
           let line = oscSeries[0] as ISeriesApi<"Line"> | undefined;
           if (!line) {
-            line = osc.addLineSeries({
+            line = osc.addSeries(LineSeries, {
               color: "#9b59b6", lineWidth: 2, priceLineVisible: false,
               lastValueVisible: true, crosshairMarkerVisible: false,
             });
@@ -233,15 +241,15 @@ export default function Chart({ onReady, onClick, onCrosshairTime }: Props) {
           let signalLine = oscSeries[1] as ISeriesApi<"Line"> | undefined;
           let hist = oscSeries[2] as ISeriesApi<"Histogram"> | undefined;
           if (!macdLine) {
-            macdLine = osc.addLineSeries({ color: "#2962ff", lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+            macdLine = osc.addSeries(LineSeries, { color: "#2962ff", lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
             oscSeries.push(macdLine);
           }
           if (!signalLine) {
-            signalLine = osc.addLineSeries({ color: "#f5c518", lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+            signalLine = osc.addSeries(LineSeries, { color: "#f5c518", lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
             oscSeries.push(signalLine);
           }
           if (!hist) {
-            hist = osc.addHistogramSeries({ priceLineVisible: false, lastValueVisible: false });
+            hist = osc.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false });
             oscSeries.push(hist);
           }
           macdLine.setData(m.macd.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
@@ -251,6 +259,26 @@ export default function Chart({ onReady, onClick, onCrosshairTime }: Props) {
             value: p.value,
             color: p.value >= 0 ? "#26a69a88" : "#ef535088",
           })));
+        }
+      },
+      setTrendLines: (lines) => {
+        const wantIDs = new Set(lines.map((l) => l.id));
+        for (const [id, prim] of trendLines) {
+          if (!wantIDs.has(id)) {
+            candles.detachPrimitive(prim);
+            trendLines.delete(id);
+          }
+        }
+        for (const l of lines) {
+          const existing = trendLines.get(l.id);
+          if (existing) {
+            // Spec changed — replace by detach/attach to keep state consistent.
+            existing.spec = l;
+            continue;
+          }
+          const prim = new TrendLinePrimitive(l, main, candles);
+          candles.attachPrimitive(prim);
+          trendLines.set(l.id, prim);
         }
       },
       setPriceLines: (lines) => {

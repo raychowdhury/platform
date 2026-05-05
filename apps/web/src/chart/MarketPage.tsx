@@ -68,7 +68,10 @@ export default function MarketPage() {
   const [notifTick, setNotifTick] = useState(0);
   const [role, setRole] = useState<string>("user");
   const [drawings, setDrawings] = useState<Drawing[]>([]);
-  const [drawMode, setDrawMode] = useState(false);
+  // drawMode = "off" | "price_line" | "trend_line"
+  // trend_line takes two clicks; first click is buffered in pendingAnchorRef.
+  const [drawMode, setDrawMode] = useState<"off" | "price_line" | "trend_line">("off");
+  const pendingAnchorRef = useRef<{ time: number; price: number } | null>(null);
   const marksRef = useRef<Map<string, number>>(new Map());
   const [marks, setMarks] = useState<Map<string, number>>(new Map());
 
@@ -199,21 +202,62 @@ export default function MarketPage() {
 
   // push drawings to chart whenever they change
   useEffect(() => {
-    chartRef.current?.setPriceLines(drawings.map((d) => ({
-      id: d.id, price: d.price, color: d.color, label: d.label,
+    const handle = chartRef.current;
+    if (!handle) return;
+    const priceLines = drawings.filter((d) => d.type === "price_line" && d.price != null);
+    handle.setPriceLines(priceLines.map((d) => ({
+      id: d.id, price: d.price as number, color: d.color, label: d.label,
+    })));
+    const trendLines = drawings.filter((d) =>
+      d.type === "trend_line" && d.time1 && d.time2 && d.price != null && d.price2 != null);
+    handle.setTrendLines(trendLines.map((d) => ({
+      id: d.id,
+      time1: Math.floor(new Date(d.time1 as string).getTime() / 1000),
+      time2: Math.floor(new Date(d.time2 as string).getTime() / 1000),
+      price1: d.price as number,
+      price2: d.price2 as number,
+      color: d.color,
     })));
   }, [drawings]);
 
-  // click handler — only acts in draw mode
+  // click handler — only acts in draw mode. price_line = single click;
+  // trend_line = two clicks; first click is staged on pendingAnchorRef.
   const onChartClick = useCallback(async (price: number) => {
-    if (!drawMode || !symbol) return;
+    if (drawMode === "off" || !symbol) return;
+    if (drawMode === "price_line") {
+      try {
+        const d = await api.createDrawing({ symbol, type: "price_line", price, label: price.toFixed(2) });
+        setDrawings((cur) => [...cur, d]);
+      } catch (e: unknown) {
+        setErr(e instanceof Error ? e.message : String(e));
+      } finally {
+        setDrawMode("off");
+      }
+      return;
+    }
+    // trend_line: anchor a click to the bar nearest the latest tick time.
+    // Without a separate "time under cursor" hook we use the most recent bar
+    // as time1 / time2 — simple, ties the line to real bars.
+    const latestBar = barsRef.current[barsRef.current.length - 1];
+    if (!latestBar) return;
+    if (!pendingAnchorRef.current) {
+      pendingAnchorRef.current = { time: latestBar.time, price };
+      return;
+    }
+    const a = pendingAnchorRef.current;
+    pendingAnchorRef.current = null;
     try {
-      const d = await api.createDrawing({ symbol, type: "price_line", price, label: price.toFixed(2) });
+      const d = await api.createDrawing({
+        symbol, type: "trend_line",
+        price: a.price, price2: price,
+        time1: new Date(a.time * 1000).toISOString(),
+        time2: new Date(latestBar.time * 1000).toISOString(),
+      });
       setDrawings((cur) => [...cur, d]);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
-      setDrawMode(false);
+      setDrawMode("off");
     }
   }, [drawMode, symbol]);
 
@@ -364,11 +408,23 @@ export default function MarketPage() {
           </button>
         ))}
         <button
-          onClick={() => setDrawMode((d) => !d)}
-          style={{ opacity: drawMode ? 1 : 0.55 }}
+          onClick={() => setDrawMode((d) => d === "price_line" ? "off" : "price_line")}
+          style={{ opacity: drawMode === "price_line" ? 1 : 0.55 }}
           title="click chart to add a horizontal price line"
         >
-          {drawMode ? "click chart…" : "+ line"}
+          {drawMode === "price_line" ? "click chart…" : "+ hline"}
+        </button>
+        <button
+          onClick={() => {
+            pendingAnchorRef.current = null;
+            setDrawMode((d) => d === "trend_line" ? "off" : "trend_line");
+          }}
+          style={{ opacity: drawMode === "trend_line" ? 1 : 0.55 }}
+          title="click two points on the chart to draw a trendline"
+        >
+          {drawMode === "trend_line"
+            ? (pendingAnchorRef.current ? "click point 2…" : "click point 1…")
+            : "+ trend"}
         </button>
         <span className="account-summary">
           {account != null ? (
@@ -388,7 +444,7 @@ export default function MarketPage() {
         {err && <span className="error">{err}</span>}
         <button onClick={async () => { await api.logout(); clearAuth(); location.href = "/login"; }}>logout</button>
       </div>
-      <div className={`chart-cell ${oscillator ? "has-osc" : ""} ${drawMode ? "draw-mode" : ""}`}>
+      <div className={`chart-cell ${oscillator ? "has-osc" : ""} ${drawMode !== "off" ? "draw-mode" : ""}`}>
         <Chart onReady={onChartReady} onClick={onChartClick} />
       </div>
       <aside className="sidebar">
@@ -401,7 +457,12 @@ export default function MarketPage() {
               <tbody>
                 {drawings.map((d) => (
                   <tr key={d.id}>
-                    <td><span style={{ color: d.color }}>━</span> {d.price.toFixed(2)}</td>
+                    <td>
+                      <span style={{ color: d.color }}>{d.type === "trend_line" ? "╱" : "━"}</span>{" "}
+                      {d.type === "trend_line"
+                        ? `${(d.price ?? 0).toFixed(2)} → ${(d.price2 ?? 0).toFixed(2)}`
+                        : (d.price ?? 0).toFixed(2)}
+                    </td>
                     <td><button className="link" onClick={() => removeDrawing(d.id)}>×</button></td>
                   </tr>
                 ))}
