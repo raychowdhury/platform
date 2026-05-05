@@ -3,12 +3,15 @@ import {
   createChart,
   ColorType,
   CrosshairMode,
+  LineStyle,
   type IChartApi,
   type ISeriesApi,
   type CandlestickData,
+  type LineData,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
+import type { LinePoint } from "./indicators";
 
 export interface CandleBar {
   time: number; // unix seconds (UTC)
@@ -18,23 +21,31 @@ export interface CandleBar {
   close: number;
 }
 
+export type IndicatorKey = "ma20" | "ma50" | "ema12" | "ema26";
+
 export interface ChartHandle {
   setHistory: (bars: CandleBar[]) => void;
   upsertBar: (bar: CandleBar) => void;
+  setIndicator: (key: IndicatorKey, points: LinePoint[] | null) => void;
 }
 
 interface Props {
   onReady: (handle: ChartHandle) => void;
 }
 
+const INDICATOR_COLORS: Record<IndicatorKey, string> = {
+  ma20:  "#f5c518",
+  ma50:  "#8e44ad",
+  ema12: "#2962ff",
+  ema26: "#26a69a",
+};
+
 export default function Chart({ onReady }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
 
   useEffect(() => {
     if (!hostRef.current) return;
-    const chart = createChart(hostRef.current, {
+    const chart: IChartApi = createChart(hostRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: "#0b0e14" },
         textColor: "#d1d4dc",
@@ -48,15 +59,15 @@ export default function Chart({ onReady }: Props) {
       timeScale: { borderColor: "#1e222d", timeVisible: true, secondsVisible: false },
       autoSize: true,
     });
-    const series = chart.addCandlestickSeries({
+    const candles = chart.addCandlestickSeries({
       upColor: "#26a69a",
       downColor: "#ef5350",
       wickUpColor: "#26a69a",
       wickDownColor: "#ef5350",
       borderVisible: false,
     });
-    chartRef.current = chart;
-    seriesRef.current = series;
+
+    const indicatorSeries = new Map<IndicatorKey, ISeriesApi<"Line">>();
 
     onReady({
       setHistory: (bars) => {
@@ -67,11 +78,11 @@ export default function Chart({ onReady }: Props) {
           low: b.low,
           close: b.close,
         }));
-        series.setData(data);
+        candles.setData(data);
         chart.timeScale().fitContent();
       },
       upsertBar: (b) => {
-        series.update({
+        candles.update({
           time: b.time as UTCTimestamp,
           open: b.open,
           high: b.high,
@@ -79,12 +90,36 @@ export default function Chart({ onReady }: Props) {
           close: b.close,
         });
       },
+      setIndicator: (key, points) => {
+        let s = indicatorSeries.get(key);
+        if (points === null) {
+          if (s) {
+            chart.removeSeries(s);
+            indicatorSeries.delete(key);
+          }
+          return;
+        }
+        if (!s) {
+          s = chart.addLineSeries({
+            color: INDICATOR_COLORS[key],
+            lineWidth: 2,
+            lineStyle: LineStyle.Solid,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false,
+          });
+          indicatorSeries.set(key, s);
+        }
+        const data: LineData<Time>[] = points.map((p) => ({
+          time: p.time as UTCTimestamp,
+          value: p.value,
+        }));
+        s.setData(data);
+      },
     });
 
     return () => {
       chart.remove();
-      chartRef.current = null;
-      seriesRef.current = null;
     };
   }, [onReady]);
 

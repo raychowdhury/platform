@@ -3,10 +3,27 @@ import { api } from "../api/client";
 import { useAuth } from "../auth/store";
 import type { Candle, StreamTick, Symbol as SymbolMeta, Timeframe } from "../api/types";
 import { TF_SECONDS } from "../api/types";
-import Chart, { type CandleBar, type ChartHandle } from "./Chart";
+import Chart, { type CandleBar, type ChartHandle, type IndicatorKey } from "./Chart";
+import { ema, sma } from "./indicators";
 import { useStream } from "./useStream";
 
 const TFS: Timeframe[] = ["1m", "5m", "15m", "30m", "1h", "4h", "8h", "1d", "1w"];
+
+const INDICATOR_DEFS: { key: IndicatorKey; label: string }[] = [
+  { key: "ma20",  label: "MA 20" },
+  { key: "ma50",  label: "MA 50" },
+  { key: "ema12", label: "EMA 12" },
+  { key: "ema26", label: "EMA 26" },
+];
+
+function compute(key: IndicatorKey, bars: CandleBar[]) {
+  switch (key) {
+    case "ma20":  return sma(bars, 20);
+    case "ma50":  return sma(bars, 50);
+    case "ema12": return ema(bars, 12);
+    case "ema26": return ema(bars, 26);
+  }
+}
 
 export default function MarketPage() {
   const clearAuth = useAuth((s) => s.clear);
@@ -17,9 +34,12 @@ export default function MarketPage() {
   const [lastPrice, setLastPrice] = useState<number | null>(null);
   const [prevClose, setPrevClose] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [active, setActive] = useState<Set<IndicatorKey>>(() => new Set(["ma20"]));
 
   const chartRef = useRef<ChartHandle | null>(null);
-  const currentBarRef = useRef<CandleBar | null>(null);
+  const barsRef = useRef<CandleBar[]>([]);
+  const activeRef = useRef(active);
+  activeRef.current = active;
 
   // bootstrap symbol list
   useEffect(() => {
@@ -28,20 +48,33 @@ export default function MarketPage() {
       .then((s) => {
         if (cancelled) return;
         setSymbols(s);
-        if (s.length > 0 && !symbol) setSymbol(s[0].symbol);
+        if (s.length > 0) setSymbol((cur) => cur || s[0].symbol);
       })
       .catch((e) => setErr(String(e)));
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // load history each time symbol/tf changes
+  const refreshIndicators = useCallback(() => {
+    const handle = chartRef.current;
+    if (!handle) return;
+    const bars = barsRef.current;
+    for (const def of INDICATOR_DEFS) {
+      if (activeRef.current.has(def.key)) {
+        handle.setIndicator(def.key, compute(def.key, bars));
+      } else {
+        handle.setIndicator(def.key, null);
+      }
+    }
+  }, []);
+
   const loadHistory = useCallback(async () => {
     if (!symbol || !chartRef.current) return;
     try {
       setErr(null);
       const to = new Date();
-      const from = new Date(to.getTime() - 24 * 60 * 60 * 1000);
+      const tfSec = TF_SECONDS[tf];
+      // pull enough history for slowest TF + indicator lookback (~500 bars worth)
+      const from = new Date(to.getTime() - tfSec * 500 * 1000);
       const candles = await api.candles(symbol, tf, from, to, 500);
       const bars: CandleBar[] = candles.map((c: Candle) => ({
         time: Math.floor(new Date(c.time).getTime() / 1000),
@@ -50,41 +83,48 @@ export default function MarketPage() {
         low: c.low,
         close: c.close,
       }));
+      barsRef.current = bars;
       chartRef.current.setHistory(bars);
+      refreshIndicators();
       const last = bars[bars.length - 1];
-      currentBarRef.current = last ?? null;
       setPrevClose(bars.length >= 2 ? bars[bars.length - 2].close : null);
       setLastPrice(last?.close ?? null);
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : String(e));
     }
-  }, [symbol, tf]);
+  }, [symbol, tf, refreshIndicators]);
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
 
-  // live ticks: roll into current bar
+  // recompute indicators when toggles change (no need to refetch history)
+  useEffect(() => { refreshIndicators(); }, [active, refreshIndicators]);
+
   const onTick = useCallback((t: StreamTick) => {
     const handle = chartRef.current;
     if (!handle) return;
     const tfSec = TF_SECONDS[tf];
     const bucket = Math.floor(t.t / 1000 / tfSec) * tfSec;
-    const cur = currentBarRef.current;
+    const bars = barsRef.current;
+    const last = bars[bars.length - 1];
     let next: CandleBar;
-    if (!cur || cur.time !== bucket) {
+    if (!last || last.time !== bucket) {
       next = { time: bucket, open: t.price, high: t.price, low: t.price, close: t.price };
+      bars.push(next);
     } else {
       next = {
-        time: cur.time,
-        open: cur.open,
-        high: Math.max(cur.high, t.price),
-        low: Math.min(cur.low, t.price),
+        time: last.time,
+        open: last.open,
+        high: Math.max(last.high, t.price),
+        low: Math.min(last.low, t.price),
         close: t.price,
       };
+      bars[bars.length - 1] = next;
     }
-    currentBarRef.current = next;
     handle.upsertBar(next);
     setLastPrice(t.price);
-  }, [tf]);
+    // recompute indicators incrementally — cheap for ≤500 bars
+    refreshIndicators();
+  }, [tf, refreshIndicators]);
 
   useStream(symbol, onTick, setStatus);
 
@@ -99,6 +139,14 @@ export default function MarketPage() {
     chartRef.current = h;
     loadHistory();
   }, [loadHistory]);
+
+  const toggle = (key: IndicatorKey) => {
+    setActive((cur) => {
+      const next = new Set(cur);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
 
   return (
     <div className="layout">
@@ -119,6 +167,15 @@ export default function MarketPage() {
         </span>
         <span className={`status ${status === "open" ? "live" : ""}`}>{status}</span>
         <span className="spacer" />
+        {INDICATOR_DEFS.map((d) => (
+          <button
+            key={d.key}
+            onClick={() => toggle(d.key)}
+            style={{ opacity: active.has(d.key) ? 1 : 0.45 }}
+          >
+            {d.label}
+          </button>
+        ))}
         {err && <span className="error">{err}</span>}
         <button onClick={async () => { await api.logout(); clearAuth(); location.href = "/login"; }}>logout</button>
       </div>
