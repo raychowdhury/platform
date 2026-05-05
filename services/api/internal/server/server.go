@@ -27,6 +27,7 @@ import (
 	"github.com/platform/api/internal/mailer"
 	"github.com/platform/api/internal/market"
 	mw "github.com/platform/api/internal/middleware"
+	"github.com/platform/api/internal/journal"
 	"github.com/platform/api/internal/notifications"
 	"github.com/platform/api/internal/oms"
 	"github.com/platform/api/internal/push"
@@ -178,6 +179,10 @@ func New(d Deps) http.Handler {
 		r.Get("/positions", omsH.ListPositions(uidFromCtx))
 		r.Get("/account", omsH.GetAccount(uidFromCtx))
 		r.Get("/pnl", omsH.PnL(uidFromCtx))
+
+		// Journal (NDJSON activity export)
+		journalH := journal.NewHandlers(journal.NewRepo(d.DB))
+		r.Get("/journal.jsonl", journalH.Export(uidFromCtx))
 	})
 
 	// Billing
