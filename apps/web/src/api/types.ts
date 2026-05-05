@@ -173,6 +173,31 @@ export interface Notification {
   created_at: string;
 }
 
+export type GridSize = "1" | "2" | "4";
+
+export interface PanelConfig {
+  symbol: string;
+  tf: Timeframe;
+}
+
+export interface Layout {
+  id: string;
+  user_id: string;
+  name: string;
+  grid: GridSize;
+  panels: PanelConfig[];
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LayoutSaveRequest {
+  name: string;
+  grid: GridSize;
+  panels: PanelConfig[];
+  is_default?: boolean;
+}
+
 export const TF_SECONDS: Record<Timeframe, number> = {
   "1m": 60,
   "5m": 300,

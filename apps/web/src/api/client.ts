@@ -4,6 +4,8 @@ import type {
   Alert,
   AlertCreateRequest,
   Candle,
+  Layout,
+  LayoutSaveRequest,
   LoginResponse,
   MFASetupResponse,
   MFAStatus,
@@ -174,4 +176,14 @@ export const api = {
   markAllNotificationsRead: () =>
     authedFetch(`/v1/notifications/read_all`, { method: "POST" })
       .then((r) => asJSON<{ updated: number }>(r)),
+
+  listLayouts: () => authedFetch(`/v1/layouts/`).then((r) => asJSON<Layout[]>(r)),
+  getLayout: (id: string) => authedFetch(`/v1/layouts/${id}`).then((r) => asJSON<Layout>(r)),
+  createLayout: (req: LayoutSaveRequest) =>
+    authedFetch(`/v1/layouts/`, { method: "POST", body: JSON.stringify(req) }).then((r) => asJSON<Layout>(r)),
+  updateLayout: (id: string, req: LayoutSaveRequest) =>
+    authedFetch(`/v1/layouts/${id}`, { method: "PUT", body: JSON.stringify(req) }).then((r) => asJSON<Layout>(r)),
+  deleteLayout: (id: string) =>
+    authedFetch(`/v1/layouts/${id}`, { method: "DELETE" })
+      .then((r) => { if (!r.ok && r.status !== 204) throw new Error(`${r.status}`); }),
 };

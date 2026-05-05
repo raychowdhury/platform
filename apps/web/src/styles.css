@@ -171,6 +171,25 @@ a:hover { text-decoration: underline; }
 .alert-form .seg button { padding: 4px 0; font-size: 12px; }
 .alert-form button[type="submit"] { margin-top: 4px; }
 
+/* multi-chart layouts */
+.multi-page { display: flex; flex-direction: column; height: 100vh; }
+.multi-grid {
+  flex: 1; display: grid; gap: 1px; background: var(--border); min-height: 0;
+}
+.multi-grid.grid-1 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.multi-grid.grid-2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+.multi-grid.grid-4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+
+.panel-chart { display: flex; flex-direction: column; background: var(--bg); min-width: 0; min-height: 0; }
+.panel-bar {
+  display: flex; align-items: center; gap: 8px; padding: 4px 8px;
+  background: var(--panel); border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.panel-bar select { background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 2px 6px; font: inherit; }
+.panel-bar .panel-price { font-variant-numeric: tabular-nums; }
+.panel-bar button { padding: 2px 8px; background: transparent; border: 1px solid var(--border); color: var(--muted); font-size: 12px; cursor: pointer; }
+.panel-chart-host { flex: 1; min-height: 0; }
+
 /* notifications bell */
 .bell { position: relative; }
 .bell-btn { padding: 4px 8px; background: transparent; border: 1px solid var(--border); cursor: pointer; }

@@ -19,6 +19,7 @@ import (
 	"github.com/platform/api/internal/billing"
 	"github.com/platform/api/internal/config"
 	"github.com/platform/api/internal/entitlements"
+	"github.com/platform/api/internal/layouts"
 	"github.com/platform/api/internal/market"
 	mw "github.com/platform/api/internal/middleware"
 	"github.com/platform/api/internal/notifications"
@@ -169,6 +170,20 @@ func New(d Deps) http.Handler {
 		r.Get("/unread_count", notifH.UnreadCount(uidFromCtx))
 		r.Post("/{id}/read", notifH.MarkRead(uidFromCtx))
 		r.Post("/read_all", notifH.MarkAllRead(uidFromCtx))
+	})
+
+	// Layouts
+	layoutsRepo := layouts.NewRepo(d.DB)
+	layoutsSvc := layouts.NewService(layoutsRepo, ent)
+	layoutsH := layouts.NewHandlers(layoutsSvc)
+
+	r.Route("/v1/layouts", func(r chi.Router) {
+		r.Use(requireAuth)
+		r.Get("/", layoutsH.List(uidFromCtx))
+		r.Post("/", layoutsH.Create(uidFromCtx))
+		r.Get("/{id}", layoutsH.Get(uidFromCtx))
+		r.Put("/{id}", layoutsH.Update(uidFromCtx))
+		r.Delete("/{id}", layoutsH.Delete(uidFromCtx))
 	})
 
 	r.Route("/v1/billing", func(r chi.Router) {

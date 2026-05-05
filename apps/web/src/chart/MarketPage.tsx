@@ -332,6 +332,7 @@ export default function MarketPage() {
         </span>
         <Link to="/plans" className="plan-pill">{sub?.plan_code ?? "free"}</Link>
         <Link to="/me/mfa" className="link" style={{ fontSize: 12 }}>2fa</Link>
+        <Link to="/multi" className="link" style={{ fontSize: 12 }}>multi</Link>
         <NotificationsBell refreshTrigger={notifTick} />
         {err && <span className="error">{err}</span>}
         <button onClick={async () => { await api.logout(); clearAuth(); location.href = "/login"; }}>logout</button>
