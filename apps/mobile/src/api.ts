@@ -117,6 +117,21 @@ export const api = {
     return r.json();
   },
 
+  async candles(symbol: string, tf = "1m", limit = 500): Promise<Candle[]> {
+    const to = new Date();
+    const sec = TF_SECONDS[tf] ?? 60;
+    const from = new Date(to.getTime() - sec * limit * 1000);
+    const q = new URLSearchParams({
+      symbol, tf,
+      from: from.toISOString(),
+      to: to.toISOString(),
+      limit: String(limit),
+    });
+    const r = await fetch(`${state.base}/v1/market/candles?${q}`);
+    if (!r.ok) throw new Error(`candles ${r.status}`);
+    return r.json();
+  },
+
   async orders(limit = 50): Promise<Order[]> {
     const r = await authedFetch(`/v1/orders?limit=${limit}`);
     if (!r.ok) throw new Error(`orders ${r.status}`);
@@ -218,3 +233,17 @@ export interface Notification {
   read_at?: string;
   created_at: string;
 }
+
+export interface Candle {
+  time: string; // ISO
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export const TF_SECONDS: Record<string, number> = {
+  "1m": 60, "5m": 300, "15m": 900, "30m": 1800,
+  "1h": 3600, "4h": 14400, "8h": 28800, "1d": 86400, "1w": 604800,
+};

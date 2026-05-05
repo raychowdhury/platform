@@ -11,14 +11,16 @@ import {
 import { api } from "./src/api";
 import AccountTab from "./src/screens/AccountTab";
 import AlertsTab from "./src/screens/AlertsTab";
+import ChartTab from "./src/screens/ChartTab";
 import NotificationsTab from "./src/screens/NotificationsTab";
 import OrdersTab from "./src/screens/OrdersTab";
 
 type Screen = "boot" | "login" | "home";
-type Tab = "account" | "orders" | "alerts" | "notif";
+type Tab = "account" | "chart" | "orders" | "alerts" | "notif";
 
 const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
   { key: "account", label: "Account" },
+  { key: "chart", label: "Chart" },
   { key: "orders", label: "Orders" },
   { key: "alerts", label: "Alerts" },
   { key: "notif", label: "Notif" },
@@ -111,6 +113,7 @@ export default function App() {
       </View>
       <View style={{ flex: 1 }}>
         {tab === "account" && <AccountTab />}
+        {tab === "chart" && <ChartTab />}
         {tab === "orders" && <OrdersTab />}
         {tab === "alerts" && <AlertsTab />}
         {tab === "notif" && <NotificationsTab />}
