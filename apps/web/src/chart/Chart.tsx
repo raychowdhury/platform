@@ -43,11 +43,21 @@ export interface ChartHandle {
   // priceFromY converts a pixel-y on the candle pane to a price using the
   // candlestick series' price scale. Returns null if outside the visible range.
   priceFromY: (y: number) => number | null;
+  // syncCrosshair drives the candle pane's crosshair from an external source
+  // (for /multi panel sync). price is required by lightweight-charts; callers
+  // should pass the close at `time` from their own bar data so the crosshair
+  // lands on the candle. null clears.
+  syncCrosshair: (time: number, price: number) => void;
+  clearCrosshair: () => void;
 }
 
 interface Props {
   onReady: (handle: ChartHandle) => void;
   onClick?: (price: number, y: number) => void;
+  // Fires when the local user moves the crosshair over this chart. time is
+  // the bar timestamp under the cursor (unix seconds), or null when the
+  // cursor leaves the chart. Used by /multi to broadcast to peer panels.
+  onCrosshairTime?: (time: number | null) => void;
 }
 
 const INDICATOR_COLORS: Record<IndicatorKey, string> = {
@@ -65,11 +75,13 @@ const COMMON_OPTS = {
   timeScale: { borderColor: "#1e222d", timeVisible: true, secondsVisible: false },
 };
 
-export default function Chart({ onReady, onClick }: Props) {
+export default function Chart({ onReady, onClick, onCrosshairTime }: Props) {
   const mainHostRef = useRef<HTMLDivElement>(null);
   const oscHostRef = useRef<HTMLDivElement>(null);
   const onClickRef = useRef(onClick);
   onClickRef.current = onClick;
+  const onCrosshairTimeRef = useRef(onCrosshairTime);
+  onCrosshairTimeRef.current = onCrosshairTime;
 
   useEffect(() => {
     if (!mainHostRef.current || !oscHostRef.current) return;
@@ -129,6 +141,18 @@ export default function Chart({ onReady, onClick }: Props) {
       const price = candles.coordinateToPrice(p.point.y);
       if (price == null) return;
       onClickRef.current(Number(price), p.point.y);
+    });
+
+    // Crosshair publish: fires on move; we pass null when the cursor leaves
+    // the data area (no time / no point) so peers can clear their crosshair.
+    // Guarded by a flag so syncCrosshair() (programmatic) doesn't echo back.
+    let applyingExternal = false;
+    main.subscribeCrosshairMove((p) => {
+      if (applyingExternal) return;
+      const cb = onCrosshairTimeRef.current;
+      if (!cb) return;
+      if (!p.time || !p.point) { cb(null); return; }
+      cb(Number(p.time));
     });
 
     onReady({
@@ -255,6 +279,18 @@ export default function Chart({ onReady, onClick }: Props) {
       priceFromY: (y) => {
         const v = candles.coordinateToPrice(y);
         return v == null ? null : Number(v);
+      },
+      syncCrosshair: (time, price) => {
+        applyingExternal = true;
+        try {
+          main.setCrosshairPosition(price, time as UTCTimestamp, candles);
+        } finally {
+          applyingExternal = false;
+        }
+      },
+      clearCrosshair: () => {
+        applyingExternal = true;
+        try { main.clearCrosshairPosition(); } finally { applyingExternal = false; }
       },
     });
 

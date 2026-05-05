@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import type {
@@ -9,6 +9,7 @@ import type {
   Timeframe,
 } from "../api/types";
 import PanelChart from "./PanelChart";
+import { createCrosshairBus } from "./crosshairBus";
 
 const PANEL_COUNT: Record<GridSize, number> = { "1": 1, "2": 2, "4": 4 };
 
@@ -34,6 +35,7 @@ export default function MultiChartPage() {
   const [activeLayout, setActiveLayout] = useState<string>(""); // layout id
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const crosshairBus = useMemo(() => createCrosshairBus(), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -147,6 +149,7 @@ export default function MultiChartPage() {
             tf={p.tf}
             symbols={symbols}
             onChange={(sym, tf) => onChangePanel(i, sym, tf)}
+            crosshairBus={crosshairBus}
           />
         ))}
       </div>
