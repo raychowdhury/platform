@@ -116,4 +116,105 @@ export const api = {
     if (!r.ok) throw new Error(`symbols ${r.status}`);
     return r.json();
   },
+
+  async orders(limit = 50): Promise<Order[]> {
+    const r = await authedFetch(`/v1/orders?limit=${limit}`);
+    if (!r.ok) throw new Error(`orders ${r.status}`);
+    return r.json();
+  },
+
+  async placeOrder(p: {
+    symbol: string; side: "buy" | "sell"; type: "market" | "limit";
+    qty: string; limit_price?: string;
+  }): Promise<Order> {
+    const r = await authedFetch("/v1/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(p),
+    });
+    if (!r.ok) throw new Error(`place ${r.status}: ${await r.text()}`);
+    return r.json();
+  },
+
+  async cancelOrder(id: string): Promise<void> {
+    const r = await authedFetch(`/v1/orders/${id}`, { method: "DELETE" });
+    if (!r.ok && r.status !== 200) throw new Error(`cancel ${r.status}`);
+  },
+
+  async alerts(): Promise<Alert[]> {
+    const r = await authedFetch("/v1/alerts/");
+    if (!r.ok) throw new Error(`alerts ${r.status}`);
+    return r.json();
+  },
+
+  async createAlert(p: {
+    symbol: string; condition: "price_above" | "price_below"; threshold: number;
+  }): Promise<Alert> {
+    const r = await authedFetch("/v1/alerts/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(p),
+    });
+    if (!r.ok) throw new Error(`alert ${r.status}: ${await r.text()}`);
+    return r.json();
+  },
+
+  async deleteAlert(id: string): Promise<void> {
+    const r = await authedFetch(`/v1/alerts/${id}`, { method: "DELETE" });
+    if (!r.ok && r.status !== 204) throw new Error(`delete ${r.status}`);
+  },
+
+  async notifications(limit = 50): Promise<Notification[]> {
+    const r = await authedFetch(`/v1/notifications/?limit=${limit}`);
+    if (!r.ok) throw new Error(`notif ${r.status}`);
+    return r.json();
+  },
+
+  async unreadCount(): Promise<number> {
+    const r = await authedFetch("/v1/notifications/unread_count");
+    if (!r.ok) return 0;
+    const j = await r.json();
+    return j.unread ?? 0;
+  },
+
+  async markRead(id: number): Promise<void> {
+    await authedFetch(`/v1/notifications/${id}/read`, { method: "POST" });
+  },
+
+  async markAllRead(): Promise<void> {
+    await authedFetch("/v1/notifications/read_all", { method: "POST" });
+  },
 };
+
+export interface Order {
+  id: string;
+  symbol: string;
+  side: "buy" | "sell";
+  type: "market" | "limit" | "stop_market";
+  qty: number;
+  filled_qty: number;
+  limit_price?: number;
+  avg_fill_price?: number;
+  status: string;
+  created_at: string;
+}
+
+export interface Alert {
+  id: string;
+  symbol: string;
+  condition: "price_above" | "price_below";
+  threshold: number;
+  status: "active" | "triggered" | "cancelled";
+  triggered_at?: string;
+  triggered_price?: number;
+  created_at: string;
+}
+
+export interface Notification {
+  id: number;
+  type: string;
+  title: string;
+  body?: string;
+  read_at?: string;
+  created_at: string;
+}
