@@ -155,6 +155,8 @@ type orderRow struct {
 	Qty          decimal.Decimal
 	FilledQty    decimal.Decimal
 	ReservedCost decimal.Decimal
+	OCOGroupID   *uuid.UUID
+	OCOLocksQty  bool
 	Status       Status
 }
 
@@ -173,7 +175,8 @@ func (e *Engine) processSymbol(ctx context.Context, t tickMsg) error {
 	rows, err := tx.Query(ctx, `
 		SELECT id, user_id, symbol, side, type, limit_price::text, stop_price::text,
 		       trail_percent::text, watermark::text,
-		       qty::text, filled_qty::text, reserved_cost::text, status
+		       qty::text, filled_qty::text, reserved_cost::text,
+		       oco_group_id, oco_locks_qty, status
 		FROM orders
 		WHERE symbol = $1 AND status IN ('open','pending')
 		ORDER BY created_at
@@ -188,7 +191,8 @@ func (e *Engine) processSymbol(ctx context.Context, t tickMsg) error {
 		var lp, sp, tp, wm, qty, filled, reserved *string
 		if err := rows.Scan(&o.ID, &o.UserID, &o.Symbol, &o.Side, &o.Type, &lp, &sp,
 			&tp, &wm,
-			&qty, &filled, &reserved, &o.Status); err != nil {
+			&qty, &filled, &reserved,
+			&o.OCOGroupID, &o.OCOLocksQty, &o.Status); err != nil {
 			rows.Close()
 			return err
 		}
@@ -428,14 +432,20 @@ func (e *Engine) fillOne(ctx context.Context, tx pgx.Tx, t tickMsg, fillPrice de
 		); err != nil {
 			return err
 		}
+		// OCO leg without its own lock: drop qty but leave locked_qty alone.
+		// Sibling cancel after this fill releases the bracket's single lock.
+		lockDelta := fillQty.String()
+		if !o.OCOLocksQty {
+			lockDelta = "0"
+		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE positions
 			SET qty = qty - $1::numeric,
-			    locked_qty = GREATEST(0::numeric, locked_qty - $1::numeric),
-			    realized_pnl = realized_pnl + $2::numeric,
+			    locked_qty = GREATEST(0::numeric, locked_qty - $2::numeric),
+			    realized_pnl = realized_pnl + $3::numeric,
 			    updated_at = now()
-			WHERE user_id = $3 AND symbol = $4
-		`, fillQty.String(), realized.String(), o.UserID, t.Symbol); err != nil {
+			WHERE user_id = $4 AND symbol = $5
+		`, fillQty.String(), lockDelta, realized.String(), o.UserID, t.Symbol); err != nil {
 			return err
 		}
 	}
@@ -456,6 +466,14 @@ func (e *Engine) fillOne(ctx context.Context, tx pgx.Tx, t tickMsg, fillPrice de
 		return err
 	}
 
+	// OCO cascade: cancel the sibling leg if any. Sibling cancel releases the
+	// bracket's lock if the sibling was the lock-holder; otherwise no-op.
+	if o.OCOGroupID != nil {
+		if err := cancelOCOSiblings(ctx, tx, *o.OCOGroupID, o.ID); err != nil {
+			e.log.Warn("oco cascade", "group", o.OCOGroupID, "err", err)
+		}
+	}
+
 	payload, _ := json.Marshal(map[string]any{
 		"type":     "fill",
 		"order_id": o.ID,
@@ -468,6 +486,73 @@ func (e *Engine) fillOne(ctx context.Context, tx pgx.Tx, t tickMsg, fillPrice de
 	})
 	_ = e.rdb.Publish(ctx, "oms:"+o.UserID.String(), payload).Err()
 
+	return nil
+}
+
+// cancelOCOSiblings cancels every other leg in the OCO group. For each
+// cancelled leg that holds the bracket's qty lock (oco_locks_qty=true), the
+// remaining unfilled qty is released back to position.locked_qty so the
+// position reservation balances after the bracket closes. Buy-side OCO is
+// not yet supported; this only handles sell brackets.
+func cancelOCOSiblings(ctx context.Context, tx pgx.Tx, group, except uuid.UUID) error {
+	rows, err := tx.Query(ctx, `
+		SELECT id, user_id, symbol, side, qty::text, filled_qty::text,
+		       reserved_cost::text, oco_locks_qty
+		FROM orders
+		WHERE oco_group_id = $1 AND id <> $2 AND status IN ('open','pending')
+		FOR UPDATE
+	`, group, except)
+	if err != nil {
+		return err
+	}
+	type sib struct {
+		id, uid                       uuid.UUID
+		sym                           string
+		side                          Side
+		qty, filled, reserved         decimal.Decimal
+		locks                         bool
+	}
+	var sibs []sib
+	for rows.Next() {
+		var s sib
+		var qty, filled, reserved string
+		if err := rows.Scan(&s.id, &s.uid, &s.sym, &s.side, &qty, &filled, &reserved, &s.locks); err != nil {
+			rows.Close()
+			return err
+		}
+		s.qty, _ = decimal.NewFromString(qty)
+		s.filled, _ = decimal.NewFromString(filled)
+		s.reserved, _ = decimal.NewFromString(reserved)
+		sibs = append(sibs, s)
+	}
+	rows.Close()
+	for _, s := range sibs {
+		if _, err := tx.Exec(ctx, `
+			UPDATE orders SET status='cancelled', updated_at=now() WHERE id = $1
+		`, s.id); err != nil {
+			return err
+		}
+		if s.side == Sell && s.locks {
+			remaining := s.qty.Sub(s.filled)
+			if remaining.IsPositive() {
+				if _, err := tx.Exec(ctx, `
+					UPDATE positions SET locked_qty = GREATEST(0::numeric, locked_qty - $1::numeric),
+					                     updated_at = now()
+					WHERE user_id = $2 AND symbol = $3
+				`, remaining.String(), s.uid, s.sym); err != nil {
+					return err
+				}
+			}
+		}
+		if s.side == Buy && s.reserved.IsPositive() {
+			if _, err := tx.Exec(ctx, `
+				UPDATE accounts SET locked = locked - $1::numeric, updated_at = now()
+				WHERE user_id = $2
+			`, s.reserved.String(), s.uid); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 

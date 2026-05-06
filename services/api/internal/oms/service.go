@@ -23,6 +23,8 @@ var (
 	ErrNoMarkPrice        = errors.New("no recent price available — try again in a moment")
 	ErrInsufficientFunds  = errors.New("insufficient available balance")
 	ErrInsufficientQty    = errors.New("insufficient available position qty")
+	ErrOCOSellOnly        = errors.New("OCO bracket currently sell-only")
+	ErrOCOPriceLogic      = errors.New("OCO sell needs limit_price > stop_price (TP above SL)")
 )
 
 // marketSlippageBuffer over-reserves market-buy orders to absorb price moves
@@ -261,8 +263,9 @@ func (s *Service) Cancel(ctx context.Context, userID, orderID uuid.UUID) (*Order
 			return nil, err
 		}
 	}
-	if o.Side == Sell {
+	if o.Side == Sell && o.OCOLocksQty {
 		// Release the unfilled portion of the qty back to position.locked_qty.
+		// Skip release for OCO legs that don't hold the bracket lock.
 		remaining := o.Qty.Sub(o.FilledQty)
 		if remaining.IsPositive() {
 			if _, err := tx.Exec(ctx, `
@@ -271,6 +274,13 @@ func (s *Service) Cancel(ctx context.Context, userID, orderID uuid.UUID) (*Order
 			`, remaining.String(), userID, o.Symbol); err != nil {
 				return nil, err
 			}
+		}
+	}
+	// User-cancel of one leg cancels its OCO sibling(s) too — same semantics
+	// as a fill cascade.
+	if o.OCOGroupID != nil {
+		if err := cancelOCOSiblings(ctx, tx, *o.OCOGroupID, o.ID); err != nil {
+			return nil, err
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -293,6 +303,124 @@ func (s *Service) ListPositions(ctx context.Context, userID uuid.UUID) ([]Positi
 
 func (s *Service) GetAccount(ctx context.Context, userID uuid.UUID) (*Account, error) {
 	return s.repo.GetAccount(ctx, userID)
+}
+
+// OCOPlaceParams describes a sell-side bracket: a take-profit limit at
+// LimitPrice and a stop-loss stop_market at StopPrice covering the same Qty.
+// Both legs share an oco_group_id; the limit leg holds the position lock
+// (oco_locks_qty=true), the stop leg does not. On either leg's fill the
+// engine cancels the sibling.
+type OCOPlaceParams struct {
+	UserID     uuid.UUID
+	Symbol     string
+	Qty        decimal.Decimal
+	LimitPrice decimal.Decimal
+	StopPrice  decimal.Decimal
+}
+
+// OCOPlaceResult returns both leg orders so the FE can render the bracket
+// pair atomically.
+type OCOPlaceResult struct {
+	Limit *Order `json:"limit"`
+	Stop  *Order `json:"stop"`
+}
+
+// PlaceOCO creates a sell bracket atomically: take-profit limit + stop-loss
+// stop_market sharing one oco_group_id. Position.locked_qty rises by Qty
+// once (via the limit leg's normal reservation path); the stop leg's
+// oco_locks_qty=false flag tells the engine not to double-lock.
+func (s *Service) PlaceOCO(ctx context.Context, p OCOPlaceParams) (*OCOPlaceResult, error) {
+	p.Symbol = strings.ToUpper(strings.TrimSpace(p.Symbol))
+	if p.Symbol == "" {
+		return nil, ErrSymbolRequired
+	}
+	if !p.Qty.IsPositive() {
+		return nil, ErrInvalidQty
+	}
+	if !p.LimitPrice.IsPositive() || !p.StopPrice.IsPositive() {
+		return nil, ErrLimitPriceMissing
+	}
+	if !p.LimitPrice.GreaterThan(p.StopPrice) {
+		return nil, ErrOCOPriceLogic
+	}
+
+	tx, err := s.repo.PoolDB().BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	// Lock the position qty once for the whole bracket via the limit leg.
+	var posStr, lockedStr string
+	err = tx.QueryRow(ctx, `
+		SELECT qty::text, locked_qty::text
+		FROM positions WHERE user_id = $1 AND symbol = $2 FOR UPDATE
+	`, p.UserID, p.Symbol).Scan(&posStr, &lockedStr)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("%w: need %s, available 0", ErrInsufficientQty, p.Qty.String())
+	}
+	if err != nil {
+		return nil, err
+	}
+	posQty, err := decimal.NewFromString(posStr)
+	if err != nil {
+		return nil, err
+	}
+	lockedQty, err := decimal.NewFromString(lockedStr)
+	if err != nil {
+		return nil, err
+	}
+	if avail := posQty.Sub(lockedQty); avail.LessThan(p.Qty) {
+		return nil, fmt.Errorf("%w: need %s, available %s", ErrInsufficientQty, p.Qty.String(), avail.String())
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE positions SET locked_qty = locked_qty + $1::numeric, updated_at = now()
+		WHERE user_id = $2 AND symbol = $3
+	`, p.Qty.String(), p.UserID, p.Symbol); err != nil {
+		return nil, err
+	}
+
+	groupID := uuid.New()
+
+	// Limit (take-profit) leg holds the lock semantically. Inserted as 'open'.
+	tp, err := s.repo.InsertOrderTx(ctx, tx, InsertParams{
+		UserID:      p.UserID,
+		Symbol:      p.Symbol,
+		Side:        Sell,
+		Type:        Limit,
+		LimitPrice:  &p.LimitPrice,
+		Qty:         p.Qty,
+		Status:      StatusOpen,
+		OCOGroupID:  &groupID,
+		OCOLocksQty: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Stop (stop-loss) leg does NOT lock; pending until trigger.
+	sl, err := s.repo.InsertOrderTx(ctx, tx, InsertParams{
+		UserID:      p.UserID,
+		Symbol:      p.Symbol,
+		Side:        Sell,
+		Type:        StopMarket,
+		StopPrice:   &p.StopPrice,
+		Qty:         p.Qty,
+		Status:      StatusPending,
+		OCOGroupID:  &groupID,
+		OCOLocksQty: false,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	if s.engine != nil {
+		s.engine.MarkActive(p.Symbol)
+	}
+	return &OCOPlaceResult{Limit: tp, Stop: sl}, nil
 }
 
 // PnLSummary aggregates realized+unrealized PnL plus equity. Unrealized is

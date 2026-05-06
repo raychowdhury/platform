@@ -30,7 +30,8 @@ const orderColumns = `
 	limit_price::text, stop_price::text,
 	trail_percent::text, watermark::text,
 	qty::text, filled_qty::text, avg_fill_price::text,
-	reserved_cost::text, status, reject_reason, created_at, updated_at
+	reserved_cost::text, oco_group_id, oco_locks_qty,
+	status, reject_reason, created_at, updated_at
 `
 
 func parseDec(s *string) (decimal.Decimal, error) {
@@ -59,6 +60,7 @@ func scanOrder(row pgx.Row) (*Order, error) {
 		&o.ID, &o.UserID, &coid, &o.Symbol, &o.Side, &o.Type,
 		&limit, &stop, &trail, &water,
 		&qty, &filled, &avg, &reserved,
+		&o.OCOGroupID, &o.OCOLocksQty,
 		&o.Status, &reject, &o.CreatedAt, &o.UpdatedAt,
 	); err != nil {
 		return nil, err
@@ -106,22 +108,31 @@ type InsertParams struct {
 	Qty           decimal.Decimal
 	ReservedCost  decimal.Decimal
 	Status        Status
+	OCOGroupID    *uuid.UUID
+	OCOLocksQty   bool
 }
 
 // InsertOrderTx writes an orders row inside an existing transaction (callers
 // that also need to atomically lock balance use this). Decimals are passed
 // as their canonical string form; postgres parses into NUMERIC.
 func (r *Repo) InsertOrderTx(ctx context.Context, tx pgx.Tx, p InsertParams) (*Order, error) {
+	// Default oco_locks_qty=true matches schema default for non-OCO orders.
+	ocoLocks := p.OCOLocksQty
+	if p.OCOGroupID == nil {
+		ocoLocks = true
+	}
 	row := tx.QueryRow(ctx, `
 		INSERT INTO orders (user_id, client_order_id, symbol, side, type,
 		                    limit_price, stop_price, trail_percent, watermark,
-		                    qty, reserved_cost, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		                    qty, reserved_cost, status,
+		                    oco_group_id, oco_locks_qty)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING `+orderColumns,
 		p.UserID, p.ClientOrderID, p.Symbol, p.Side, p.Type,
 		decPtrStr(p.LimitPrice), decPtrStr(p.StopPrice),
 		decPtrStr(p.TrailPercent), decPtrStr(p.Watermark),
 		p.Qty.String(), p.ReservedCost.String(), p.Status,
+		p.OCOGroupID, ocoLocks,
 	)
 	return scanOrder(row)
 }

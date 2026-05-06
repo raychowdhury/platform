@@ -172,6 +172,7 @@ func New(d Deps) http.Handler {
 		r.Use(requireAuth)
 		// trade scope guards mutating order endpoints; reads only need the implicit read scope
 		r.With(mw.RequireScope("trade")).Post("/orders", omsH.Place(uidFromCtx))
+		r.With(mw.RequireScope("trade")).Post("/orders/oco", omsH.PlaceOCO(uidFromCtx))
 		r.With(mw.RequireScope("trade")).Delete("/orders/{id}", omsH.Cancel(uidFromCtx))
 		r.Get("/orders", omsH.ListOrders(uidFromCtx))
 		r.Get("/orders/{id}", omsH.GetOrder(uidFromCtx))

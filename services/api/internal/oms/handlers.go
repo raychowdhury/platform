@@ -58,6 +58,35 @@ func (h *Handlers) Place(uid uidProvider) http.HandlerFunc {
 	}
 }
 
+type ocoReq struct {
+	Symbol     string          `json:"symbol"`
+	Qty        decimal.Decimal `json:"qty"`
+	LimitPrice decimal.Decimal `json:"limit_price"`
+	StopPrice  decimal.Decimal `json:"stop_price"`
+}
+
+func (h *Handlers) PlaceOCO(uid uidProvider) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req ocoReq
+		if err := httputil.DecodeJSON(r, &req); err != nil {
+			httputil.WriteError(w, http.StatusBadRequest, "invalid body")
+			return
+		}
+		res, err := h.svc.PlaceOCO(r.Context(), OCOPlaceParams{
+			UserID:     uid(r),
+			Symbol:     req.Symbol,
+			Qty:        req.Qty,
+			LimitPrice: req.LimitPrice,
+			StopPrice:  req.StopPrice,
+		})
+		if err != nil {
+			httputil.WriteError(w, statusFor(err), err.Error())
+			return
+		}
+		httputil.WriteJSON(w, http.StatusCreated, res)
+	}
+}
+
 func (h *Handlers) Cancel(uid uidProvider) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
@@ -170,7 +199,8 @@ func statusFor(err error) int {
 	case errors.Is(err, ErrInvalidSide), errors.Is(err, ErrInvalidType),
 		errors.Is(err, ErrLimitPriceMissing), errors.Is(err, ErrLimitPriceUnused),
 		errors.Is(err, ErrStopPriceMissing), errors.Is(err, ErrTrailPctMissing),
-		errors.Is(err, ErrInvalidQty), errors.Is(err, ErrSymbolRequired):
+		errors.Is(err, ErrInvalidQty), errors.Is(err, ErrSymbolRequired),
+		errors.Is(err, ErrOCOSellOnly), errors.Is(err, ErrOCOPriceLogic):
 		return http.StatusBadRequest
 	case errors.Is(err, ErrInsufficientFunds), errors.Is(err, ErrInsufficientQty):
 		return http.StatusPaymentRequired

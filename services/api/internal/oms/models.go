@@ -45,6 +45,8 @@ type Order struct {
 	FilledQty     decimal.Decimal  `json:"filled_qty"`
 	AvgFillPrice  *decimal.Decimal `json:"avg_fill_price,omitempty"`
 	ReservedCost  decimal.Decimal  `json:"reserved_cost"`
+	OCOGroupID    *uuid.UUID       `json:"oco_group_id,omitempty"`
+	OCOLocksQty   bool             `json:"oco_locks_qty"`
 	Status        Status           `json:"status"`
 	RejectReason  *string          `json:"reject_reason,omitempty"`
 	CreatedAt     time.Time        `json:"created_at"`
