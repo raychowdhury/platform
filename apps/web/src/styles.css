@@ -7,7 +7,21 @@
   --muted: #787b86;
   --accent: #2962ff;
   --error: #ef5350;
+  --up: #26a69a;
+  --down: #ef5350;
+  --up-bg: #1b3d2f;
+  --down-bg: #3d1b1f;
+  --warn: #f5a623;
+  --warn-bg: #3a2a10;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* CVD palette: blue (up) / orange (down) — accessible for red-green color blindness */
+[data-theme="cvd"] {
+  --up: #2196f3;
+  --down: #ff9800;
+  --up-bg: #112538;
+  --down-bg: #3a2510;
 }
 
 * { box-sizing: border-box; }
@@ -63,13 +77,15 @@ a:hover { text-decoration: underline; }
   padding: 6px 10px; border-radius: 4px; font: inherit;
 }
 .topbar .spacer { flex: 1; }
-.topbar .price { font-variant-numeric: tabular-nums; }
-.topbar .price.up { color: #26a69a; }
-.topbar .price.down { color: #ef5350; }
+.topbar .price { font-variant-numeric: tabular-nums; transition: background-color 80ms ease-out; padding: 2px 6px; border-radius: 3px; }
+.topbar .price.up { color: var(--up); }
+.topbar .price.down { color: var(--down); }
+.topbar .price.flash-up { background: color-mix(in srgb, var(--up) 30%, transparent); }
+.topbar .price.flash-down { background: color-mix(in srgb, var(--down) 30%, transparent); }
 .topbar .status {
   font-size: 12px; padding: 2px 6px; border-radius: 3px; background: #1e222d;
 }
-.topbar .status.live { background: #1b3d2f; color: #26a69a; }
+.topbar .status.live { background: var(--up-bg); color: var(--up); }
 .topbar button {
   width: auto; padding: 4px 12px; background: transparent; color: var(--muted);
   border: 1px solid var(--border); font-size: 12px;
@@ -123,11 +139,32 @@ a:hover { text-decoration: underline; }
   border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font: inherit;
 }
 .ticket .seg .seg-on { background: #2a2e39; border-color: #3a3f4d; }
-.ticket .seg .seg-on.buy  { background: #1b3d2f; color: #26a69a; border-color: #26a69a; }
-.ticket .seg .seg-on.sell { background: #3d1b1f; color: #ef5350; border-color: #ef5350; }
+.ticket .seg .seg-on.buy  { background: var(--up-bg); color: var(--up); border-color: var(--up); }
+.ticket .seg .seg-on.sell { background: var(--down-bg); color: var(--down); border-color: var(--down); }
 .ticket .field label { display: flex; justify-content: space-between; align-items: center; }
-.ticket .btn-buy  { background: #26a69a; }
-.ticket .btn-sell { background: #ef5350; }
+.ticket .btn-buy  { background: var(--up); }
+.ticket .btn-sell { background: var(--down); }
+
+/* ticket: leverage slider, margin mode, summary */
+.ticket .lev-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.ticket .lev-row input[type="range"] { flex: 1; accent-color: var(--accent); }
+.ticket .lev-row .lev-val { font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; font-weight: 600; }
+.ticket .lev-row .lev-val.high { color: var(--warn); }
+.ticket .lev-row .lev-val.extreme { color: var(--down); }
+.ticket .summary {
+  display: grid; grid-template-columns: auto 1fr; gap: 4px 12px;
+  margin: 8px 0; padding: 8px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 4px;
+  font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.ticket .summary dt { color: var(--muted); }
+.ticket .summary dd { margin: 0; text-align: right; }
+.ticket .summary dd.warn { color: var(--warn); }
+.ticket .summary dd.danger { color: var(--down); font-weight: 600; }
+.ticket .leverage-warn {
+  font-size: 11px; color: var(--warn); margin-bottom: 8px;
+  padding: 6px 8px; background: var(--warn-bg); border-radius: 3px;
+}
 .link {
   background: transparent !important; color: var(--accent) !important; border: none !important;
   padding: 0 !important; width: auto !important; font-size: 12px !important; text-decoration: underline; cursor: pointer;
@@ -137,8 +174,27 @@ a:hover { text-decoration: underline; }
 .oms-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .oms-table th, .oms-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #181b25; }
 .oms-table th { color: var(--muted); font-weight: 500; text-transform: uppercase; font-size: 10px; }
-.oms-table td.up,   .oms-table .up   { color: #26a69a; }
-.oms-table td.down, .oms-table .down { color: #ef5350; }
+.oms-table { font-variant-numeric: tabular-nums; }
+.oms-table td.up,   .oms-table .up   { color: var(--up); }
+.oms-table td.down, .oms-table .down { color: var(--down); }
+.oms-table td.num { text-align: right; }
+
+/* margin ratio gauge */
+.gauge { display: flex; align-items: center; gap: 8px; }
+.gauge-bar {
+  flex: 1; height: 6px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 3px; overflow: hidden; position: relative;
+}
+.gauge-fill { height: 100%; transition: width 200ms ease, background-color 200ms; }
+.gauge-fill.safe   { background: var(--up); }
+.gauge-fill.warn   { background: var(--warn); }
+.gauge-fill.danger { background: var(--down); }
+.gauge-val {
+  font-size: 11px; font-variant-numeric: tabular-nums;
+  min-width: 44px; text-align: right;
+}
+.gauge-val.warn { color: var(--warn); }
+.gauge-val.danger { color: var(--down); font-weight: 600; }
 
 /* plans */
 .plan-pill {
@@ -217,7 +273,82 @@ a:hover { text-decoration: underline; }
 /* toast */
 .toast {
   position: fixed; right: 24px; bottom: 24px; z-index: 100;
-  background: #1b3d2f; color: #26a69a; border: 1px solid #26a69a;
+  background: var(--up-bg); color: var(--up); border: 1px solid var(--up);
   padding: 12px 16px; border-radius: 6px; font-size: 14px; max-width: 360px;
   box-shadow: 0 6px 24px rgba(0,0,0,0.4);
 }
+
+/* progressive auth */
+.auth-step-meta {
+  display: flex; align-items: center; gap: 8px; font-size: 12px;
+  color: var(--muted); margin-bottom: 16px;
+}
+.auth-step-meta .crumb {
+  background: var(--bg); border: 1px solid var(--border);
+  padding: 2px 8px; border-radius: 999px;
+}
+.auth-step-meta .crumb-back {
+  background: transparent; border: none; color: var(--accent);
+  padding: 0; font-size: 12px; cursor: pointer; width: auto;
+}
+
+/* MFA hierarchy tiers */
+.mfa-tiers { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+.mfa-tier {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  padding: 14px 16px; display: flex; align-items: flex-start; gap: 14px;
+}
+.mfa-tier.active { border-color: var(--up); }
+.mfa-tier.locked { opacity: 0.55; }
+.mfa-tier-rank {
+  font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: 0.5px;
+  background: var(--bg); border: 1px solid var(--border);
+  padding: 4px 8px; border-radius: 3px; min-width: 28px; text-align: center;
+}
+.mfa-tier-body { flex: 1; }
+.mfa-tier-name { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+.mfa-tier-desc { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.mfa-tier-status {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px;
+  padding: 2px 6px; border-radius: 3px; background: var(--bg);
+  color: var(--muted); border: 1px solid var(--border);
+}
+.mfa-tier-status.on { background: var(--up-bg); color: var(--up); border-color: var(--up); }
+.mfa-tier-action { width: auto; padding: 6px 12px; font-size: 12px; }
+
+.mfa-enroll-step {
+  display: flex; align-items: center; gap: 8px; font-size: 12px;
+  color: var(--muted); margin: 8px 0;
+}
+.mfa-enroll-step .dot {
+  width: 16px; height: 16px; border-radius: 50%; background: var(--bg);
+  border: 1px solid var(--border); display: inline-flex;
+  align-items: center; justify-content: center; font-size: 10px;
+}
+.mfa-enroll-step .dot.done { background: var(--up); border-color: var(--up); color: white; }
+.mfa-enroll-step .dot.active { border-color: var(--accent); color: var(--accent); }
+
+.mfa-secret {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 13px; padding: 10px; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 4px;
+  word-break: break-all; user-select: all;
+}
+.mfa-warn {
+  font-size: 12px; color: var(--warn); padding: 8px 10px;
+  background: var(--warn-bg); border-radius: 4px; margin: 8px 0;
+}
+
+/* lite/pro mode — lite hides advanced controls on MarketPage topbar */
+.layout-trade.lite .topbar .pro-only { display: none; }
+.layout-trade.lite .ticket .pro-only { display: none; }
+
+.mode-toggle {
+  display: inline-flex; border: 1px solid var(--border); border-radius: 4px;
+  overflow: hidden; font-size: 11px;
+}
+.mode-toggle button {
+  width: auto; padding: 4px 10px; background: transparent; color: var(--muted);
+  border: none; border-radius: 0;
+}
+.mode-toggle button.on { background: var(--accent); color: white; }

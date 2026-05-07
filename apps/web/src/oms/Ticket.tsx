@@ -14,6 +14,10 @@ const TYPES: { value: OrderType; label: string }[] = [
   { value: "stop_market", label: "Stop" },
 ];
 
+const LEV_STEPS = [1, 2, 5, 10, 25, 50, 100];
+
+type Mode = "cross" | "isolated";
+
 export default function Ticket({ symbol, lastPrice, onPlaced }: Props) {
   const [side, setSide] = useState<OrderSide>("buy");
   const [type, setType] = useState<OrderType>("market");
@@ -22,9 +26,19 @@ export default function Ticket({ symbol, lastPrice, onPlaced }: Props) {
   const [stop, setStop] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [levIdx, setLevIdx] = useState(0); // 1x by default
+  const [mode, setMode] = useState<Mode>("cross");
+
+  const lev = LEV_STEPS[levIdx];
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (lev >= 25) {
+      const ok = window.confirm(
+        `${lev}x leverage is high-risk. A small adverse move can liquidate. Continue?`,
+      );
+      if (!ok) return;
+    }
     setBusy(true);
     setMsg(null);
     try {
@@ -65,6 +79,19 @@ export default function Ticket({ symbol, lastPrice, onPlaced }: Props) {
   })();
   const qtyN = parseFloat(qty);
   const notional = isFinite(qtyN) && isFinite(refPrice) ? qtyN * refPrice : null;
+  const cost = notional != null ? notional / lev : null;
+  // Simplified isolated-margin liq estimate: liq = entry * (1 - 1/lev) for long,
+  // entry * (1 + 1/lev) for short. Ignores fees + maintenance margin — directional only.
+  const liq = (() => {
+    if (!isFinite(refPrice) || refPrice <= 0) return null;
+    const m = 1 / lev;
+    return side === "buy" ? refPrice * (1 - m) : refPrice * (1 + m);
+  })();
+  const liqDistPct = (liq != null && isFinite(refPrice))
+    ? Math.abs((refPrice - liq) / refPrice) * 100
+    : null;
+
+  const levClass = lev >= 50 ? "extreme" : lev >= 10 ? "high" : "";
 
   return (
     <form className="panel ticket" onSubmit={submit}>
@@ -73,6 +100,27 @@ export default function Ticket({ symbol, lastPrice, onPlaced }: Props) {
         <button type="button" className={side === "buy" ? "seg-on buy" : ""} onClick={() => setSide("buy")}>BUY</button>
         <button type="button" className={side === "sell" ? "seg-on sell" : ""} onClick={() => setSide("sell")}>SELL</button>
       </div>
+      <div className="seg pro-only">
+        <button type="button" className={mode === "cross" ? "seg-on" : ""} onClick={() => setMode("cross")}>Cross</button>
+        <button type="button" className={mode === "isolated" ? "seg-on" : ""} onClick={() => setMode("isolated")}>Isolated</button>
+      </div>
+      <div className="lev-row pro-only">
+        <span className="muted small">Leverage</span>
+        <input
+          type="range"
+          min={0}
+          max={LEV_STEPS.length - 1}
+          step={1}
+          value={levIdx}
+          onChange={(e) => setLevIdx(parseInt(e.target.value, 10))}
+        />
+        <span className={`lev-val ${levClass}`}>{lev}x</span>
+      </div>
+      {lev >= 25 && (
+        <div className="leverage-warn pro-only">
+          High leverage: a {(100 / lev).toFixed(2)}% adverse move can liquidate.
+        </div>
+      )}
       <div className="seg">
         {TYPES.map((t) => (
           <button key={t.value} type="button"
@@ -104,9 +152,21 @@ export default function Ticket({ symbol, lastPrice, onPlaced }: Props) {
           <input type="number" step="any" min="0" value={stop} onChange={(e) => setStop(e.target.value)} />
         </div>
       )}
-      <div className="muted small">
-        notional: {notional != null ? notional.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}
-      </div>
+      <dl className="summary">
+        <dt>Notional</dt>
+        <dd>{notional != null ? notional.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}</dd>
+        <dt className="pro-only">Cost ({lev}x)</dt>
+        <dd className="pro-only">{cost != null ? cost.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}</dd>
+        <dt className="pro-only">Est. liq. price</dt>
+        <dd className={`pro-only ${lev >= 50 ? "danger" : lev >= 10 ? "warn" : ""}`}>
+          {liq != null ? liq.toFixed(2) : "—"}
+          {liqDistPct != null && (
+            <span className="muted" style={{ marginLeft: 6, fontSize: 11 }}>
+              {liqDistPct.toFixed(2)}%
+            </span>
+          )}
+        </dd>
+      </dl>
       <button type="submit" disabled={busy} className={side === "buy" ? "btn-buy" : "btn-sell"}>
         {busy ? "placing..." : `${side.toUpperCase()} ${qty} ${symbol.split("-")[0]}`}
       </button>

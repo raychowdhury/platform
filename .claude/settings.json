@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(go mod *)"
+      "Bash(go mod *)",
+      "Bash(go build *)"
+    ],
+    "additionalDirectories": [
+      "/tmp",
+      "/private/tmp"
     ]
   }
 }
