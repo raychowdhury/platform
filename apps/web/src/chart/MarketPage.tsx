@@ -45,6 +45,12 @@ function compute(key: IndicatorKey, bars: CandleBar[]) {
   }
 }
 
+type ViewMode = "lite" | "pro";
+type Palette = "default" | "cvd";
+
+const VIEW_KEY = "view-mode";
+const PALETTE_KEY = "color-palette";
+
 export default function MarketPage() {
   const clearAuth = useAuth((s) => s.clear);
   const [symbols, setSymbols] = useState<SymbolMeta[]>([]);
@@ -53,6 +59,15 @@ export default function MarketPage() {
   const [status, setStatus] = useState<"connecting" | "open" | "closed">("closed");
   const [lastPrice, setLastPrice] = useState<number | null>(null);
   const [prevClose, setPrevClose] = useState<number | null>(null);
+  const [flash, setFlash] = useState<"flash-up" | "flash-down" | "">("");
+  const [view, setView] = useState<ViewMode>(
+    () => (localStorage.getItem(VIEW_KEY) as ViewMode) || "pro",
+  );
+  const [palette, setPalette] = useState<Palette>(
+    () => (localStorage.getItem(PALETTE_KEY) as Palette) || "default",
+  );
+  const lastPriceRef = useRef<number | null>(null);
+  const flashTimerRef = useRef<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [active, setActive] = useState<Set<IndicatorKey>>(() => new Set(["ma20"]));
   const [oscillator, setOscillator] = useState<OscillatorKey | null>(null);
@@ -279,6 +294,14 @@ export default function MarketPage() {
     marksRef.current.set(t.symbol, t.price);
 
     if (t.symbol !== symbol) return;
+    const prev = lastPriceRef.current;
+    if (prev != null && t.price !== prev) {
+      const dir = t.price > prev ? "flash-up" : "flash-down";
+      setFlash(dir);
+      if (flashTimerRef.current) window.clearTimeout(flashTimerRef.current);
+      flashTimerRef.current = window.setTimeout(() => setFlash(""), 320);
+    }
+    lastPriceRef.current = t.price;
     const handle = chartRef.current;
     if (!handle) return;
     const tfSec = TF_SECONDS[tf];
@@ -320,6 +343,14 @@ export default function MarketPage() {
     }, 1000);
     return () => window.clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    if (palette === "default") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", palette);
+    localStorage.setItem(PALETTE_KEY, palette);
+  }, [palette]);
+
+  useEffect(() => { localStorage.setItem(VIEW_KEY, view); }, [view]);
 
   const dir: "up" | "down" | undefined = useMemo(() => {
     if (lastPrice == null || prevClose == null) return undefined;
@@ -369,7 +400,7 @@ export default function MarketPage() {
   }, [account, positions, marks]);
 
   return (
-    <div className="layout-trade">
+    <div className={`layout-trade ${view}`}>
       <div className="topbar">
         <strong>Platform</strong>
         <select value={symbol} onChange={(e) => setSymbol(e.target.value)}>
@@ -382,17 +413,26 @@ export default function MarketPage() {
         <select value={tf} onChange={(e) => setTf(e.target.value as Timeframe)}>
           {TFS.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
-        <span className={`price ${dir ?? ""}`}>
+        <span className={`price ${dir ?? ""} ${flash}`}>
           {lastPrice != null ? lastPrice.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}
         </span>
         <span className={`status ${status === "open" ? "live" : ""}`}>{status}</span>
         <span className="spacer" />
+        <span className="mode-toggle" title="Lite hides advanced tools">
+          <button type="button" className={view === "lite" ? "on" : ""} onClick={() => setView("lite")}>Lite</button>
+          <button type="button" className={view === "pro" ? "on" : ""} onClick={() => setView("pro")}>Pro</button>
+        </span>
+        <span className="mode-toggle" title="Color palette (CVD = color-vision-deficiency safe)">
+          <button type="button" className={palette === "default" ? "on" : ""} onClick={() => setPalette("default")}>R/G</button>
+          <button type="button" className={palette === "cvd" ? "on" : ""} onClick={() => setPalette("cvd")}>CVD</button>
+        </span>
         {INDICATOR_DEFS.map((d) => {
           const on = active.has(d.key);
           const blocked = !on && active.size >= maxIndicators;
           return (
             <button
               key={d.key}
+              className="pro-only"
               onClick={() => toggle(d.key)}
               disabled={blocked}
               title={blocked ? `Plan limit ${maxIndicators}` : ""}
@@ -405,6 +445,7 @@ export default function MarketPage() {
         {(["rsi", "macd"] as OscillatorKey[]).map((k) => (
           <button
             key={k}
+            className="pro-only"
             onClick={() => setOscillator((cur) => (cur === k ? null : k))}
             style={{ opacity: oscillator === k ? 1 : 0.45 }}
           >
@@ -412,6 +453,7 @@ export default function MarketPage() {
           </button>
         ))}
         <button
+          className="pro-only"
           onClick={() => setDrawMode((d) => d === "price_line" ? "off" : "price_line")}
           style={{ opacity: drawMode === "price_line" ? 1 : 0.55 }}
           title="click chart to add a horizontal price line"
@@ -419,6 +461,7 @@ export default function MarketPage() {
           {drawMode === "price_line" ? "click chart…" : "+ hline"}
         </button>
         <button
+          className="pro-only"
           onClick={() => {
             pendingAnchorRef.current = null;
             setDrawMode((d) => d === "trend_line" ? "off" : "trend_line");
@@ -431,6 +474,7 @@ export default function MarketPage() {
             : "+ trend"}
         </button>
         <button
+          className="pro-only"
           onClick={() => {
             pendingAnchorRef.current = null;
             setDrawMode((d) => d === "fib_retracement" ? "off" : "fib_retracement");
