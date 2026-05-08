@@ -156,10 +156,12 @@ func New(d Deps) http.Handler {
 	mktH := market.NewHandlers(mktRepo, ent)
 	wsGW := market.NewWSGateway(d.Redis, d.Log, issuer)
 
+	signalsH := market.NewSignalsHandler(d.Redis)
 	r.Route("/v1/market", func(r chi.Router) {
 		r.Get("/symbols", mktH.ListSymbols)
 		r.Get("/candles", mktH.Candles)
 		r.Get("/ticks", mktH.RecentTicks)
+		r.Get("/signals/{symbol}", signalsH.Get)
 	})
 
 	r.Get("/v1/stream", wsGW.Handle)
@@ -247,6 +249,8 @@ func New(d Deps) http.Handler {
 	adminH := admin.NewHandlers(adminRepo, svc)
 	requireAdmin := mw.RequireRole(d.DB, "admin")
 
+	backfillH := market.NewBackfillHandlers(d.DB, d.Cfg.DatabentoAPIKey, d.Cfg.DatabentoDataset)
+
 	r.Route("/v1/admin", func(r chi.Router) {
 		r.Use(requireAuth)
 		r.Use(requireAdmin)
@@ -256,6 +260,7 @@ func New(d Deps) http.Handler {
 		r.Post("/users/{id}/unfreeze", adminH.Unfreeze(uidFromCtx))
 		r.Post("/users/{id}/balance", adminH.AdjustBalance(uidFromCtx))
 		r.Get("/audit", adminH.ListAudit)
+		r.Post("/instruments/{symbol}/backfill", backfillH.Run)
 	})
 
 	r.Route("/v1/billing", func(r chi.Router) {

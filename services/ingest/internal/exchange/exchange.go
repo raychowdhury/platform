@@ -20,6 +20,23 @@ type Tick struct {
 	IsBuyerMaker bool
 }
 
+// BookLevel is one side of one price level in the order book.
+type BookLevel struct {
+	Price float64
+	Size  uint32
+	Count uint32
+}
+
+// BookSnapshot is the top-N (≤10) of the order book at a point in time.
+// Adapters that don't carry depth (Coinbase matches, Binance trade) leave
+// this stream unused.
+type BookSnapshot struct {
+	Symbol string
+	Time   time.Time
+	Bids   []BookLevel
+	Asks   []BookLevel
+}
+
 // Streamer connects to a market data feed and emits ticks until ctx is done.
 // Implementations must reconnect with backoff on transient errors and
 // return only on context cancellation or unrecoverable failure.

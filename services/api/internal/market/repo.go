@@ -34,12 +34,14 @@ func IsValidTF(tf string) bool { _, ok := tfToView[tf]; return ok }
 
 func (r *Repo) ListSymbols(ctx context.Context) ([]Symbol, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT symbol, exchange, base, quote,
-		       COALESCE(tick_size,0)::float8, COALESCE(step_size,0)::float8, COALESCE(min_qty,0)::float8,
-		       status
-		FROM symbols
-		WHERE status = 'active'
-		ORDER BY symbol
+		SELECT s.symbol, s.exchange, s.base, s.quote,
+		       COALESCE(s.tick_size,0)::float8, COALESCE(s.step_size,0)::float8, COALESCE(s.min_qty,0)::float8,
+		       COALESCE(i.multiplier, 1)::float8, COALESCE(i.asset_class, 'spot'),
+		       s.status
+		FROM symbols s
+		LEFT JOIN instruments i ON i.symbol = s.symbol
+		WHERE s.status = 'active'
+		ORDER BY s.symbol
 	`)
 	if err != nil {
 		return nil, err
@@ -48,7 +50,7 @@ func (r *Repo) ListSymbols(ctx context.Context) ([]Symbol, error) {
 	var out []Symbol
 	for rows.Next() {
 		var s Symbol
-		if err := rows.Scan(&s.Symbol, &s.Exchange, &s.Base, &s.Quote, &s.TickSize, &s.StepSize, &s.MinQty, &s.Status); err != nil {
+		if err := rows.Scan(&s.Symbol, &s.Exchange, &s.Base, &s.Quote, &s.TickSize, &s.StepSize, &s.MinQty, &s.Multiplier, &s.AssetClass, &s.Status); err != nil {
 			return nil, err
 		}
 		out = append(out, s)

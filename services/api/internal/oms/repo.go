@@ -306,19 +306,38 @@ func (r *Repo) GetAccount(ctx context.Context, userID uuid.UUID) (*Account, erro
 // dashboard line; full attribution lives in the journal export.
 func (r *Repo) RealizedPnLToday(ctx context.Context, userID uuid.UUID) (decimal.Decimal, error) {
 	var s string
+	// Futures contracts apply instrument multiplier to the price-delta term;
+	// fees are already in account-currency units and are not multiplied.
 	err := r.db.QueryRow(ctx, `
 		SELECT COALESCE(SUM(
 			CASE WHEN f.side = 'sell'
-				THEN (f.price - COALESCE(p.avg_cost, f.price)) * f.qty - f.fee
+				THEN (f.price - COALESCE(p.avg_cost, f.price)) * f.qty * COALESCE(i.multiplier, 1) - f.fee
 				ELSE 0 END
 		), 0)::text
 		FROM fills f
-		LEFT JOIN positions p ON p.user_id = f.user_id AND p.symbol = f.symbol
+		LEFT JOIN positions  p ON p.user_id = f.user_id AND p.symbol = f.symbol
+		LEFT JOIN instruments i ON i.symbol = f.symbol
 		WHERE f.user_id = $1
 		  AND f.created_at >= date_trunc('day', now() AT TIME ZONE 'UTC')
 	`, userID).Scan(&s)
 	if err != nil {
 		return decimal.Zero, err
+	}
+	return decimal.NewFromString(s)
+}
+
+// MultiplierFor returns the instrument multiplier for a symbol. Defaults to 1
+// when the symbol isn't registered (legacy spot symbols).
+func (r *Repo) MultiplierFor(ctx context.Context, symbol string) (decimal.Decimal, error) {
+	var s string
+	err := r.db.QueryRow(ctx,
+		`SELECT COALESCE(multiplier, 1)::text FROM instruments WHERE symbol = $1`,
+		symbol).Scan(&s)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return decimal.NewFromInt(1), nil
+	}
+	if err != nil {
+		return decimal.NewFromInt(1), err
 	}
 	return decimal.NewFromString(s)
 }

@@ -14,10 +14,10 @@ import { createCrosshairBus } from "./crosshairBus";
 const PANEL_COUNT: Record<GridSize, number> = { "1": 1, "2": 2, "4": 4 };
 
 const DEFAULT_PANELS: PanelConfig[] = [
-  { symbol: "BTC-USD", tf: "1m" },
-  { symbol: "ETH-USD", tf: "1m" },
-  { symbol: "SOL-USD", tf: "1m" },
-  { symbol: "BTC-USD", tf: "5m" },
+  { symbol: "ESM6", tf: "1m" },
+  { symbol: "ESM6", tf: "5m" },
+  { symbol: "ESM6", tf: "15m" },
+  { symbol: "ESM6", tf: "1h" },
 ];
 
 function panelsForGrid(grid: GridSize, current: PanelConfig[]): PanelConfig[] {

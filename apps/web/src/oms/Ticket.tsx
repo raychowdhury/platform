@@ -1,10 +1,11 @@
 import { FormEvent, useState } from "react";
 import { api } from "../api/client";
-import type { OrderSide, OrderType } from "../api/types";
+import type { OrderSide, OrderType, Symbol as SymbolMeta } from "../api/types";
 
 interface Props {
   symbol: string;
   lastPrice: number | null;
+  meta?: SymbolMeta;
   onPlaced: () => void;
 }
 
@@ -18,10 +19,16 @@ const LEV_STEPS = [1, 2, 5, 10, 25, 50, 100];
 
 type Mode = "cross" | "isolated";
 
-export default function Ticket({ symbol, lastPrice, onPlaced }: Props) {
+export default function Ticket({ symbol, lastPrice, meta, onPlaced }: Props) {
+  const isFutures = meta?.asset_class === "futures";
+  const multiplier = meta?.multiplier && meta.multiplier > 0 ? meta.multiplier : 1;
+  const tickSize = meta?.tick_size && meta.tick_size > 0 ? meta.tick_size : 0.01;
+  const stepSize = meta?.step_size && meta.step_size > 0 ? meta.step_size : 0.001;
+  const minQty = meta?.min_qty && meta.min_qty > 0 ? meta.min_qty : 0;
+
   const [side, setSide] = useState<OrderSide>("buy");
   const [type, setType] = useState<OrderType>("market");
-  const [qty, setQty] = useState("0.001");
+  const [qty, setQty] = useState(isFutures ? "1" : "0.001");
   const [price, setPrice] = useState("");
   const [stop, setStop] = useState("");
   const [busy, setBusy] = useState(false);
@@ -78,7 +85,9 @@ export default function Ticket({ symbol, lastPrice, onPlaced }: Props) {
     return lastPrice ?? NaN;
   })();
   const qtyN = parseFloat(qty);
-  const notional = isFinite(qtyN) && isFinite(refPrice) ? qtyN * refPrice : null;
+  // Notional uses contract multiplier so futures show full $/point exposure
+  // (1 ESM6 @ 7400 × $50 = $370,000), not just price × qty.
+  const notional = isFinite(qtyN) && isFinite(refPrice) ? qtyN * refPrice * multiplier : null;
   const cost = notional != null ? notional / lev : null;
   // Simplified isolated-margin liq estimate: liq = entry * (1 - 1/lev) for long,
   // entry * (1 + 1/lev) for short. Ignores fees + maintenance margin — directional only.
@@ -100,26 +109,30 @@ export default function Ticket({ symbol, lastPrice, onPlaced }: Props) {
         <button type="button" className={side === "buy" ? "seg-on buy" : ""} onClick={() => setSide("buy")}>BUY</button>
         <button type="button" className={side === "sell" ? "seg-on sell" : ""} onClick={() => setSide("sell")}>SELL</button>
       </div>
-      <div className="seg pro-only">
-        <button type="button" className={mode === "cross" ? "seg-on" : ""} onClick={() => setMode("cross")}>Cross</button>
-        <button type="button" className={mode === "isolated" ? "seg-on" : ""} onClick={() => setMode("isolated")}>Isolated</button>
-      </div>
-      <div className="lev-row pro-only">
-        <span className="muted small">Leverage</span>
-        <input
-          type="range"
-          min={0}
-          max={LEV_STEPS.length - 1}
-          step={1}
-          value={levIdx}
-          onChange={(e) => setLevIdx(parseInt(e.target.value, 10))}
-        />
-        <span className={`lev-val ${levClass}`}>{lev}x</span>
-      </div>
-      {lev >= 25 && (
-        <div className="leverage-warn pro-only">
-          High leverage: a {(100 / lev).toFixed(2)}% adverse move can liquidate.
-        </div>
+      {!isFutures && (
+        <>
+          <div className="seg pro-only">
+            <button type="button" className={mode === "cross" ? "seg-on" : ""} onClick={() => setMode("cross")}>Cross</button>
+            <button type="button" className={mode === "isolated" ? "seg-on" : ""} onClick={() => setMode("isolated")}>Isolated</button>
+          </div>
+          <div className="lev-row pro-only">
+            <span className="muted small">Leverage</span>
+            <input
+              type="range"
+              min={0}
+              max={LEV_STEPS.length - 1}
+              step={1}
+              value={levIdx}
+              onChange={(e) => setLevIdx(parseInt(e.target.value, 10))}
+            />
+            <span className={`lev-val ${levClass}`}>{lev}x</span>
+          </div>
+          {lev >= 25 && (
+            <div className="leverage-warn pro-only">
+              High leverage: a {(100 / lev).toFixed(2)}% adverse move can liquidate.
+            </div>
+          )}
+        </>
       )}
       <div className="seg">
         {TYPES.map((t) => (
@@ -131,44 +144,54 @@ export default function Ticket({ symbol, lastPrice, onPlaced }: Props) {
         ))}
       </div>
       <div className="field">
-        <label>Quantity</label>
-        <input type="number" step="any" min="0" value={qty} onChange={(e) => setQty(e.target.value)} />
+        <label>Quantity {isFutures && <span className="muted small">(contracts)</span>}</label>
+        <input
+          type="number"
+          step={stepSize}
+          min={minQty || stepSize}
+          value={qty}
+          onChange={(e) => setQty(e.target.value)}
+        />
       </div>
       {type === "limit" && (
         <div className="field">
           <label>
-            Limit Price
+            Limit Price {isFutures && <span className="muted small">(tick {tickSize})</span>}
             {lastPrice != null && <button type="button" className="link" onClick={fillAtMarket}>use mkt</button>}
           </label>
-          <input type="number" step="any" min="0" value={price} onChange={(e) => setPrice(e.target.value)} />
+          <input type="number" step={tickSize} min="0" value={price} onChange={(e) => setPrice(e.target.value)} />
         </div>
       )}
       {type === "stop_market" && (
         <div className="field">
           <label>
-            Stop Price
+            Stop Price {isFutures && <span className="muted small">(tick {tickSize})</span>}
             {lastPrice != null && <button type="button" className="link" onClick={fillAtMarket}>use mkt</button>}
           </label>
-          <input type="number" step="any" min="0" value={stop} onChange={(e) => setStop(e.target.value)} />
+          <input type="number" step={tickSize} min="0" value={stop} onChange={(e) => setStop(e.target.value)} />
         </div>
       )}
       <dl className="summary">
-        <dt>Notional</dt>
+        <dt>Notional{isFutures ? ` (×${multiplier})` : ""}</dt>
         <dd>{notional != null ? notional.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}</dd>
-        <dt className="pro-only">Cost ({lev}x)</dt>
-        <dd className="pro-only">{cost != null ? cost.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}</dd>
-        <dt className="pro-only">Est. liq. price</dt>
-        <dd className={`pro-only ${lev >= 50 ? "danger" : lev >= 10 ? "warn" : ""}`}>
-          {liq != null ? liq.toFixed(2) : "—"}
-          {liqDistPct != null && (
-            <span className="muted" style={{ marginLeft: 6, fontSize: 11 }}>
-              {liqDistPct.toFixed(2)}%
-            </span>
-          )}
-        </dd>
+        {!isFutures && (
+          <>
+            <dt className="pro-only">Cost ({lev}x)</dt>
+            <dd className="pro-only">{cost != null ? cost.toLocaleString(undefined, { maximumFractionDigits: 2 }) : "—"}</dd>
+            <dt className="pro-only">Est. liq. price</dt>
+            <dd className={`pro-only ${lev >= 50 ? "danger" : lev >= 10 ? "warn" : ""}`}>
+              {liq != null ? liq.toFixed(2) : "—"}
+              {liqDistPct != null && (
+                <span className="muted" style={{ marginLeft: 6, fontSize: 11 }}>
+                  {liqDistPct.toFixed(2)}%
+                </span>
+              )}
+            </dd>
+          </>
+        )}
       </dl>
       <button type="submit" disabled={busy} className={side === "buy" ? "btn-buy" : "btn-sell"}>
-        {busy ? "placing..." : `${side.toUpperCase()} ${qty} ${symbol.split("-")[0]}`}
+        {busy ? "placing..." : `${side.toUpperCase()} ${qty} ${symbol}`}
       </button>
       {msg && <div className="muted small">{msg}</div>}
     </form>

@@ -97,6 +97,8 @@ export interface Symbol {
   tick_size?: number;
   step_size?: number;
   min_qty?: number;
+  multiplier?: number;
+  asset_class?: "futures" | "spot";
 }
 
 export interface Candle {

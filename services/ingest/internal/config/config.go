@@ -8,28 +8,32 @@ import (
 )
 
 type Config struct {
-	PostgresDSN   string
-	RedisAddr     string
-	RedisPassword string
-	Exchange      string // "coinbase" | "binance"
-	BinanceWSURL  string
-	CoinbaseWSURL string
-	Symbols       []string
-	BatchSize     int
-	BatchInterval time.Duration
+	PostgresDSN      string
+	RedisAddr        string
+	RedisPassword    string
+	Exchange         string // "coinbase" | "binance" | "databento"
+	BinanceWSURL     string
+	CoinbaseWSURL    string
+	DatabentoAPIKey  string
+	DatabentoDataset string
+	Symbols          []string
+	BatchSize        int
+	BatchInterval    time.Duration
 }
 
 func Load() *Config {
 	return &Config{
-		PostgresDSN:   envStr("POSTGRES_DSN", "postgres://platform:platform_dev@localhost:5432/platform?sslmode=disable"),
-		RedisAddr:     envStr("REDIS_ADDR", "localhost:6379"),
-		RedisPassword: envStr("REDIS_PASSWORD", ""),
-		Exchange:      strings.ToLower(envStr("EXCHANGE", "coinbase")),
-		BinanceWSURL:  envStr("BINANCE_WS_URL", "wss://stream.binance.us:9443"),
-		CoinbaseWSURL: envStr("COINBASE_WS_URL", "wss://ws-feed.exchange.coinbase.com"),
-		Symbols:       splitNative(envStr("INGEST_SYMBOLS", "BTC-USD")),
-		BatchSize:     envInt("INGEST_BATCH_SIZE", 200),
-		BatchInterval: envDuration("INGEST_BATCH_INTERVAL", 500*time.Millisecond),
+		PostgresDSN:      envStr("POSTGRES_DSN", "postgres://platform:platform_dev@localhost:5432/platform?sslmode=disable"),
+		RedisAddr:        envStr("REDIS_ADDR", "localhost:6379"),
+		RedisPassword:    envStr("REDIS_PASSWORD", ""),
+		Exchange:         strings.ToLower(envStr("EXCHANGE", "databento")),
+		BinanceWSURL:     envStr("BINANCE_WS_URL", "wss://stream.binance.us:9443"),
+		CoinbaseWSURL:    envStr("COINBASE_WS_URL", "wss://ws-feed.exchange.coinbase.com"),
+		DatabentoAPIKey:  envStr("DATABENTO_API_KEY", ""),
+		DatabentoDataset: envStr("DATABENTO_DATASET", "GLBX.MDP3"),
+		Symbols:          splitNative(envStr("INGEST_SYMBOLS", "ESM6")),
+		BatchSize:        envInt("INGEST_BATCH_SIZE", 200),
+		BatchInterval:    envDuration("INGEST_BATCH_INTERVAL", 500*time.Millisecond),
 	}
 }
 

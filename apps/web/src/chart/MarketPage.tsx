@@ -508,7 +508,12 @@ export default function MarketPage() {
         <Chart onReady={onChartReady} onClick={onChartClick} />
       </div>
       <aside className="sidebar">
-        <Ticket symbol={symbol} lastPrice={lastPrice} onPlaced={refreshOms} />
+        <Ticket
+          symbol={symbol}
+          lastPrice={lastPrice}
+          meta={symbols.find((s) => s.symbol === symbol)}
+          onPlaced={refreshOms}
+        />
         <AlertsPanel symbol={symbol} alerts={alerts} lastPrice={lastPrice} onChanged={refreshOms} />
         {drawings.length > 0 && (
           <div className="panel">

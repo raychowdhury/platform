@@ -469,14 +469,20 @@ func (s *Service) PnL(ctx context.Context, userID uuid.UUID) (*PnLSummary, error
 	out.RealizedToday = realizedToday
 	mtm := decimal.Zero
 	for _, p := range positions {
-		out.RealizedTotal = out.RealizedTotal.Add(p.RealizedPnL)
+		mult, err := s.repo.MultiplierFor(ctx, p.Symbol)
+		if err != nil {
+			return nil, err
+		}
+		// Realized stored on positions is in price units; apply contract
+		// multiplier to surface dollar P&L for futures (1 for spot).
+		out.RealizedTotal = out.RealizedTotal.Add(p.RealizedPnL.Mul(mult))
 		mark := p.AvgCost
 		if s.engine != nil {
 			if v, ok := s.engine.LastPrice(p.Symbol); ok {
 				mark = decimal.NewFromFloat(v)
 			}
 		}
-		unr := mark.Sub(p.AvgCost).Mul(p.Qty)
+		unr := mark.Sub(p.AvgCost).Mul(p.Qty).Mul(mult)
 		out.UnrealizedTotal = out.UnrealizedTotal.Add(unr)
 		mtm = mtm.Add(mark.Mul(p.Qty))
 		out.Positions = append(out.Positions, PnLPositionDetail{

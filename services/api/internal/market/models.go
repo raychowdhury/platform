@@ -3,14 +3,16 @@ package market
 import "time"
 
 type Symbol struct {
-	Symbol   string  `json:"symbol"`
-	Exchange string  `json:"exchange"`
-	Base     string  `json:"base"`
-	Quote    string  `json:"quote"`
-	TickSize float64 `json:"tick_size,omitempty"`
-	StepSize float64 `json:"step_size,omitempty"`
-	MinQty   float64 `json:"min_qty,omitempty"`
-	Status   string  `json:"status"`
+	Symbol     string  `json:"symbol"`
+	Exchange   string  `json:"exchange"`
+	Base       string  `json:"base"`
+	Quote      string  `json:"quote"`
+	TickSize   float64 `json:"tick_size,omitempty"`
+	StepSize   float64 `json:"step_size,omitempty"`
+	MinQty     float64 `json:"min_qty,omitempty"`
+	Multiplier float64 `json:"multiplier,omitempty"`  // contract multiplier (50 for ES); spot symbols return 1
+	AssetClass string  `json:"asset_class,omitempty"` // "futures" | "spot"
+	Status     string  `json:"status"`
 }
 
 type Candle struct {

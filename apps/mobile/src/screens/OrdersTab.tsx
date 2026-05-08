@@ -8,9 +8,9 @@ import { tabStyles } from "./styles";
 export default function OrdersTab() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [symbol, setSymbol] = useState("BTC-USD");
+  const [symbol, setSymbol] = useState("ESM6");
   const [side, setSide] = useState<"buy" | "sell">("buy");
-  const [qty, setQty] = useState("0.0001");
+  const [qty, setQty] = useState("1");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 

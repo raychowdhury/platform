@@ -8,7 +8,7 @@ import { tabStyles } from "./styles";
 export default function AlertsTab() {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [symbol, setSymbol] = useState("BTC-USD");
+  const [symbol, setSymbol] = useState("ESM6");
   const [cond, setCond] = useState<"price_above" | "price_below">("price_above");
   const [threshold, setThreshold] = useState("");
   const [err, setErr] = useState<string | null>(null);

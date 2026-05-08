@@ -63,6 +63,8 @@ services:
       VAPID_PUBLIC_KEY: "${VAPID_PUBLIC_KEY:-}"
       VAPID_PRIVATE_KEY: "${VAPID_PRIVATE_KEY:-}"
       VAPID_SUBJECT: "${VAPID_SUBJECT:-mailto:admin@platform.local}"
+      DATABENTO_API_KEY: "${DATABENTO_API_KEY:-}"
+      DATABENTO_DATASET: "${DATABENTO_DATASET:-GLBX.MDP3}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -83,10 +85,12 @@ services:
     environment:
       POSTGRES_DSN: "postgres://${POSTGRES_USER:-platform}:${POSTGRES_PASSWORD:-platform_dev}@timescaledb:5432/${POSTGRES_DB:-platform}?sslmode=disable"
       REDIS_ADDR: "redis:6379"
-      EXCHANGE: "${EXCHANGE:-coinbase}"
+      EXCHANGE: "${EXCHANGE:-databento}"
       BINANCE_WS_URL: "${BINANCE_WS_URL:-wss://stream.binance.us:9443}"
       COINBASE_WS_URL: "${COINBASE_WS_URL:-wss://ws-feed.exchange.coinbase.com}"
-      INGEST_SYMBOLS: "${INGEST_SYMBOLS:-BTC-USD}"
+      DATABENTO_API_KEY: "${DATABENTO_API_KEY:-}"
+      DATABENTO_DATASET: "${DATABENTO_DATASET:-GLBX.MDP3}"
+      INGEST_SYMBOLS: "${INGEST_SYMBOLS:-ESM6}"
       INGEST_BATCH_SIZE: "${INGEST_BATCH_SIZE:-200}"
       INGEST_BATCH_INTERVAL: "${INGEST_BATCH_INTERVAL:-500ms}"
 

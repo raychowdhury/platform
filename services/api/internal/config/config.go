@@ -38,6 +38,8 @@ type Config struct {
 	VAPIDPublicKey  string
 	VAPIDPrivateKey string
 	VAPIDSubject    string // mailto:... — required by Web Push spec
+	DatabentoAPIKey  string // historical OHLCV backfill (CME via GLBX.MDP3)
+	DatabentoDataset string // dataset code, default GLBX.MDP3
 }
 
 func Load() (*Config, error) {
@@ -70,6 +72,8 @@ func Load() (*Config, error) {
 		VAPIDPublicKey:    envStr("VAPID_PUBLIC_KEY", ""),
 		VAPIDPrivateKey:   envStr("VAPID_PRIVATE_KEY", ""),
 		VAPIDSubject:      envStr("VAPID_SUBJECT", "mailto:admin@platform.local"),
+		DatabentoAPIKey:  envStr("DATABENTO_API_KEY", ""),
+		DatabentoDataset: envStr("DATABENTO_DATASET", "GLBX.MDP3"),
 	}
 	if len(c.JWTSecret) < 32 {
 		return nil, fmt.Errorf("JWT_SECRET must be set and >=32 bytes")

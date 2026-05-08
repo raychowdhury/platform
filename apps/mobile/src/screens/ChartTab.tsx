@@ -51,7 +51,7 @@ const HTML = `<!doctype html>
 </script></body></html>`;
 
 export default function ChartTab() {
-  const [symbol, setSymbol] = useState("BTC-USD");
+  const [symbol, setSymbol] = useState("ESM6");
   const [tf, setTf] = useState<TF>("1m");
   const [symbols, setSymbols] = useState<string[]>([]);
   const webRef = useRef<WebView | null>(null);

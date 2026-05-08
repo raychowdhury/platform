@@ -17,6 +17,8 @@ import (
 	"github.com/platform/ingest/internal/exchange"
 	"github.com/platform/ingest/internal/exchange/binance"
 	"github.com/platform/ingest/internal/exchange/coinbase"
+	"github.com/platform/ingest/internal/exchange/databento"
+	"github.com/platform/ingest/internal/signals"
 	"github.com/platform/ingest/internal/store"
 )
 
@@ -58,15 +60,43 @@ func main() {
 	defer func() { _ = rdb.Close() }()
 
 	st := store.New(pg, rdb, log)
+	sig := signals.NewEngine(rdb, log)
 
+	rawTicks := make(chan exchange.Tick, 1024)
+	books := make(chan exchange.BookSnapshot, 256)
 	ticks := make(chan exchange.Tick, 1024)
 
+	// If using databento, surface book snapshots into the signals engine.
+	if dbs, ok := streamer.(*databento.Streamer); ok {
+		dbs.BookOut = books
+	}
+
+	// Fan-out: each tick goes to the signals engine (in-memory) and the
+	// store (DB + Redis pub/sub). Signals tap is non-blocking by design;
+	// the DB path is the source of truth.
 	go func() {
-		err := streamer.Stream(rootCtx, cfg.Symbols, log, ticks)
+		for t := range rawTicks {
+			sig.OnTrade(t)
+			ticks <- t
+		}
+		close(ticks)
+	}()
+
+	go func() {
+		for snap := range books {
+			sig.OnBook(snap)
+		}
+	}()
+
+	go sig.Run(rootCtx)
+
+	go func() {
+		err := streamer.Stream(rootCtx, cfg.Symbols, log, rawTicks)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			log.Error("stream ended", "err", err)
 		}
-		close(ticks)
+		close(rawTicks)
+		close(books)
 	}()
 
 	if err := st.Run(rootCtx, ticks, cfg.BatchSize, cfg.BatchInterval); err != nil && !errors.Is(err, context.Canceled) {
@@ -82,6 +112,8 @@ func selectStreamer(cfg *config.Config) (exchange.Streamer, error) {
 		return &binance.Streamer{BaseURL: cfg.BinanceWSURL}, nil
 	case "coinbase":
 		return &coinbase.Streamer{URL: cfg.CoinbaseWSURL}, nil
+	case "databento":
+		return &databento.Streamer{APIKey: cfg.DatabentoAPIKey, Dataset: cfg.DatabentoDataset}, nil
 	default:
 		return nil, fmt.Errorf("%w: %q", exchange.ErrUnknown, cfg.Exchange)
 	}
