@@ -1,0 +1,301 @@
+@import "tailwindcss" source(none);
+@source "..";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+@theme inline {
+  /* Institutional sharp edges. Inputs slightly soft, panels/tables flat. */
+  --radius-sm: 2px;
+  --radius-md: 2px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+  --radius-3xl: 0px;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-bull: var(--bull);
+  --color-bear: var(--bear);
+  --color-positive: var(--bull);
+  --color-negative: var(--bear);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-violet: var(--violet);
+  --color-panel: var(--panel);
+  --color-panel-foreground: var(--panel-foreground);
+  --color-glass: var(--glass);
+  --color-glass-border: var(--glass-border);
+  --font-display: "Inter", system-ui, sans-serif;
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Geist Mono", ui-monospace, monospace;
+}
+
+/* Light mode — kept clean for marketing surfaces. */
+:root {
+  --radius: 2px;
+  --background: oklch(0.985 0.002 250);
+  --foreground: oklch(0.16 0.01 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.16 0.01 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.16 0.01 260);
+  --panel: oklch(1 0 0);
+  --panel-foreground: oklch(0.16 0.01 260);
+  --primary: oklch(0.22 0.02 250);
+  --primary-foreground: oklch(0.99 0.005 250);
+  --secondary: oklch(0.96 0.004 260);
+  --secondary-foreground: oklch(0.22 0.012 260);
+  --muted: oklch(0.96 0.004 260);
+  --muted-foreground: oklch(0.5 0.012 260);
+  --accent: oklch(0.7 0.13 195);          /* electric teal */
+  --accent-foreground: oklch(0.16 0.01 260);
+  --destructive: oklch(0.55 0.22 25);
+  --destructive-foreground: oklch(0.99 0.005 250);
+  --border: oklch(0.9 0.004 260);
+  --input: oklch(0.92 0.004 260);
+  --ring: oklch(0.7 0.13 195);
+  --bull: oklch(0.62 0.16 152);
+  --bear: oklch(0.58 0.22 25);
+  --warning: oklch(0.75 0.16 75);
+  --info: oklch(0.62 0.13 240);
+  --violet: oklch(0.55 0.18 290);
+  --surface: oklch(1 0 0);
+  --surface-2: oklch(0.97 0.003 260);
+  --hairline: oklch(0.9 0.004 260);
+  --chart-grid: oklch(0.16 0.01 260 / 0.08);
+  --chart-axis: oklch(0.45 0.01 260);
+  --chart-cursor: oklch(0.16 0.01 260 / 0.18);
+  --chart-wick: oklch(0.55 0.01 260);
+  --tooltip-bg: oklch(1 0 0);
+  --tooltip-border: oklch(0.88 0.005 260);
+  --chart-1: oklch(0.7 0.13 195);
+  --chart-2: oklch(0.62 0.16 152);
+  --chart-3: oklch(0.65 0.16 50);
+  --chart-4: oklch(0.55 0.18 290);
+  --chart-5: oklch(0.58 0.22 25);
+  --sidebar: oklch(0.97 0.003 260);
+  --sidebar-foreground: oklch(0.22 0.012 260);
+  --sidebar-primary: oklch(0.22 0.02 250);
+  --sidebar-primary-foreground: oklch(0.99 0.005 250);
+  --sidebar-accent: oklch(0.94 0.004 260);
+  --sidebar-accent-foreground: oklch(0.22 0.012 260);
+  --sidebar-border: oklch(0.9 0.004 260);
+  --sidebar-ring: oklch(0.7 0.13 195);
+}
+
+/* Dark mode — primary terminal experience. Near-black, deep graphite panels. */
+.dark {
+  --background: oklch(0.13 0.005 260);     /* near-black */
+  --foreground: oklch(0.96 0.004 250);
+  --card: oklch(0.16 0.006 260);
+  --card-foreground: oklch(0.96 0.004 250);
+  --popover: oklch(0.17 0.007 260);
+  --popover-foreground: oklch(0.96 0.004 250);
+  --panel: oklch(0.16 0.006 260);
+  --panel-foreground: oklch(0.96 0.004 250);
+  --primary: oklch(0.92 0.005 250);        /* high-contrast for buttons */
+  --primary-foreground: oklch(0.13 0.005 260);
+  --secondary: oklch(0.2 0.008 260);
+  --secondary-foreground: oklch(0.96 0.004 250);
+  --muted: oklch(0.19 0.007 260);
+  --muted-foreground: oklch(0.62 0.012 260);
+  --accent: oklch(0.78 0.13 195);          /* electric teal */
+  --accent-foreground: oklch(0.13 0.005 260);
+  --destructive: oklch(0.65 0.22 25);
+  --bull: oklch(0.78 0.17 150);
+  --bear: oklch(0.7 0.22 25);
+  --warning: oklch(0.78 0.16 75);
+  --info: oklch(0.72 0.13 235);
+  --violet: oklch(0.7 0.16 290);
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 10%);
+  --ring: oklch(0.78 0.13 195);
+  --surface: oklch(0.16 0.006 260);
+  --surface-2: oklch(0.18 0.007 260);
+  --hairline: oklch(1 0 0 / 7%);
+  --chart-grid: oklch(1 0 0 / 0.05);
+  --chart-axis: oklch(0.65 0.02 260);
+  --chart-cursor: oklch(1 0 0 / 0.18);
+  --chart-wick: oklch(0.5 0.02 260);
+  --tooltip-bg: oklch(0.18 0.012 260);
+  --tooltip-border: oklch(1 0 0 / 0.1);
+  --sidebar: oklch(0.115 0.005 260);
+  --sidebar-foreground: oklch(0.96 0.004 250);
+  --sidebar-accent: oklch(0.19 0.008 260);
+  --sidebar-accent-foreground: oklch(0.96 0.004 250);
+  --sidebar-border: oklch(1 0 0 / 7%);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+    border-radius: 0;
+  }
+  /* Inputs keep a 2px micro-radius; everything else is sharp. */
+  input, textarea, select, .rounded-sm, .rounded-md, kbd { border-radius: 2px; }
+  .rounded-lg, .rounded-xl, .rounded-2xl, .rounded-3xl { border-radius: 0 !important; }
+  .rounded-full, .rounded-full * { border-radius: 9999px !important; }
+  .rounded-none { border-radius: 0 !important; }
+
+  th, td, tr, rect, path, line, svg, .recharts-wrapper, .recharts-surface { border-radius: 0 !important; }
+
+  button:not(:disabled), [role="button"], a, summary, label[for], select, input[type="checkbox"], input[type="radio"], input[type="range"] {
+    cursor: pointer;
+  }
+  button:disabled { cursor: not-allowed; }
+
+  /* Subtle, system-feedback transitions only. */
+  button:not(:disabled), [role="button"], a {
+    transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease, opacity 140ms ease;
+  }
+  .dark button:not(:disabled):hover, .dark [role="button"]:hover { filter: brightness(1.06); }
+  a:hover { opacity: 0.85; }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea, select {
+    transition: border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+  }
+  input:focus-visible, textarea:focus-visible, select:focus-visible {
+    outline: none;
+    border-color: var(--ring);
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
+  }
+
+  html, body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+  body { background: var(--background); }
+
+  /* Numeric monospace defaults */
+  .font-mono, code, kbd, samp, pre {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum", "zero";
+  }
+
+  /* Display = tight institutional sans, NOT serif. */
+  .font-display {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer components {
+  /* Editorial flat panel — no glow, no glass. */
+  .glass, .panel {
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    border-radius: 0;
+    position: relative;
+  }
+  .glass-soft {
+    background: var(--surface-2);
+    border: 1px solid var(--hairline);
+    border-radius: 0;
+  }
+  .hairline { border-color: var(--hairline); }
+
+  /* Terminal strip header — used at the top of every panel. */
+  .strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    height: 30px;
+    padding: 0 0.75rem;
+    border-bottom: 1px solid var(--hairline);
+    background: color-mix(in oklab, var(--panel) 88%, transparent);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+  .strip-title { color: var(--foreground); font-weight: 500; }
+  .strip-code  { color: var(--accent); font-weight: 600; }
+
+  /* Live pulse dot */
+  .live-dot {
+    width: 6px; height: 6px; border-radius: 9999px;
+    background: var(--bull);
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--bull) 60%, transparent);
+    animation: live-pulse 2s ease-out infinite;
+    display: inline-block;
+  }
+  @keyframes live-pulse {
+    0%   { box-shadow: 0 0 0 0 color-mix(in oklab, var(--bull) 55%, transparent); }
+    70%  { box-shadow: 0 0 0 6px color-mix(in oklab, var(--bull) 0%, transparent); }
+    100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--bull) 0%, transparent); }
+  }
+
+  /* Numeric helpers */
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .text-bull { color: var(--bull); }
+  .text-bear { color: var(--bear); }
+  .text-positive { color: var(--bull); }
+  .text-negative { color: var(--bear); }
+  .bg-bull\/10 { background: color-mix(in oklab, var(--bull) 10%, transparent); }
+  .bg-bear\/10 { background: color-mix(in oklab, var(--bear) 10%, transparent); }
+
+  /* Section eyebrow label */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+
+  /* Page transitions */
+  @keyframes page-enter {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .animate-page-enter {
+    animation: page-enter 280ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+
+  @keyframes marquee {
+    from { transform: translateX(0); }
+    to   { transform: translateX(-50%); }
+  }
+  .animate-marquee {
+    animation: marquee 60s linear infinite;
+    will-change: transform;
+  }
+
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .animate-page-enter { animation: none; }
+  }
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: oklch(1 0 0 / 0.08); border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background: oklch(1 0 0 / 0.18); }

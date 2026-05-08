@@ -102,8 +102,10 @@ services:
     restart: unless-stopped
     depends_on:
       - api
+    environment:
+      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:-http://localhost:8080}"
     ports:
-      - "${WEB_PORT:-5173}:80"
+      - "${WEB_PORT:-3000}:3000"
 
 volumes:
   timescale_data:
