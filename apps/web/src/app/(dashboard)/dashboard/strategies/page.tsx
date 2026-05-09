@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Area, AreaChart, ResponsiveContainer } from "recharts";
 import { genSpark } from "@/lib/chart-data";
 import { Zap, Plus, Play, Copy, Code2, GitBranch, Activity, X, Check } from "lucide-react";
@@ -29,10 +30,21 @@ const STRATS: Strategy[] = [
 const TYPES = ["All", "Trend", "Mean Rev", "Arb", "Volatility"] as const;
 
 export default function StrategiesPage() {
+  const router = useRouter();
   const [type, setType] = useState<typeof TYPES[number]>("All");
   const [active, setActive] = useState<Record<string, boolean>>({ st1: true, st2: true, st4: true });
   const [open, setOpen] = useState<Strategy | null>(null);
   const [showBuilder, setShowBuilder] = useState(false);
+  const [forked, setForked] = useState<Record<string, boolean>>({});
+  const [backtesting, setBacktesting] = useState(false);
+  const [backtestDone, setBacktestDone] = useState(false);
+  const [showCodeEditor, setShowCodeEditor] = useState(false);
+
+  const runBacktest = () => {
+    setBacktesting(true);
+    setBacktestDone(false);
+    setTimeout(() => { setBacktesting(false); setBacktestDone(true); }, 2000);
+  };
 
   const filtered = STRATS.filter((s) => type === "All" || s.type === type);
 
@@ -45,7 +57,7 @@ export default function StrategiesPage() {
           <p className="text-sm text-muted-foreground mt-1">Battle-tested systematic strategies. Backtest, paper-trade, then go live.</p>
         </div>
         <div className="flex items-center gap-2">
-          <button className="text-xs px-3 py-2 border hairline hover:bg-muted flex items-center gap-1.5"><GitBranch className="w-3 h-3" />Marketplace</button>
+          <button onClick={() => router.push("/dashboard/signals")} className="text-xs px-3 py-2 border hairline hover:bg-muted flex items-center gap-1.5"><GitBranch className="w-3 h-3" />Marketplace</button>
           <button onClick={() => setShowBuilder(true)} className="text-xs px-3 py-2 bg-primary text-primary-foreground hover:opacity-90 flex items-center gap-1.5">
             <Plus className="w-3 h-3" /> New strategy
           </button>
@@ -118,7 +130,7 @@ export default function StrategiesPage() {
                   <span className="flex items-center gap-1"><Activity className="w-3 h-3" />Backtested 2018–2026</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <button onClick={(e) => { e.stopPropagation(); }} className="text-[11px] px-2 py-1 border hairline hover:bg-muted flex items-center gap-1"><Copy className="w-3 h-3" />Fork</button>
+                  <button onClick={(e) => { e.stopPropagation(); setForked(p => ({ ...p, [s.id]: !p[s.id] })); }} className={`text-[11px] px-2 py-1 border flex items-center gap-1 transition-colors ${forked[s.id] ? "border-bull/30 text-bull bg-bull/10" : "hairline hover:bg-muted"}`}><Copy className="w-3 h-3" />{forked[s.id] ? "Forked" : "Fork"}</button>
                   <button onClick={(e) => { e.stopPropagation(); setActive((p) => ({ ...p, [s.id]: !p[s.id] })); }}
                     className={`text-[11px] px-2.5 py-1 border ${isActive ? "bg-foreground text-background border-foreground" : "hairline hover:bg-muted"}`}>
                     {isActive ? <span className="flex items-center gap-1"><Check className="w-3 h-3" />Running</span> : <span className="flex items-center gap-1"><Play className="w-3 h-3" />Deploy</span>}
@@ -156,10 +168,32 @@ export default function StrategiesPage() {
               <div>&nbsp;&nbsp;trail_stop(2 * atr(14))</div>
             </div>
             <div className="flex items-center gap-2">
-              <button className="flex-1 py-2.5 bg-primary text-primary-foreground text-xs hover:opacity-90 flex items-center justify-center gap-1.5"><Play className="w-3.5 h-3.5" />Run backtest</button>
-              <button className="px-3 py-2.5 border hairline text-xs hover:bg-muted flex items-center gap-1.5"><Code2 className="w-3.5 h-3.5" />Edit code</button>
+              <button onClick={runBacktest} disabled={backtesting} className={`flex-1 py-2.5 text-xs flex items-center justify-center gap-1.5 transition-colors ${backtestDone ? "bg-bull/15 border border-bull/30 text-bull" : "bg-primary text-primary-foreground hover:opacity-90"} disabled:opacity-60`}>
+                <Play className="w-3.5 h-3.5" />{backtesting ? "Running…" : backtestDone ? "✓ Backtest complete" : "Run backtest"}
+              </button>
+              <button onClick={() => setShowCodeEditor(true)} className="px-3 py-2.5 border hairline text-xs hover:bg-muted flex items-center gap-1.5"><Code2 className="w-3.5 h-3.5" />Edit code</button>
             </div>
           </aside>
+        </div>
+      )}
+
+      {showCodeEditor && open && (
+        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-foreground/20" onClick={() => setShowCodeEditor(false)}>
+          <div className="bg-background border hairline max-w-2xl w-full p-6 flex flex-col gap-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-display text-xl">Edit — {open.name}</h3>
+              <button onClick={() => setShowCodeEditor(false)} className="p-1 hover:bg-muted"><X className="w-4 h-4" /></button>
+            </div>
+            <textarea
+              rows={12}
+              defaultValue={`# ${open.name}\n# Type: ${open.type}\n\nif ema(8) > ema(21) > ema(55):\n    buy(size = risk / atr(14))\n    trail_stop(2 * atr(14))\nelse:\n    close_long()`}
+              className="w-full bg-white/[0.03] border hairline px-4 py-3 text-[12px] font-mono focus:outline-none focus:border-accent/40 resize-none leading-relaxed"
+            />
+            <div className="flex gap-2 text-[11px]">
+              <button onClick={() => setShowCodeEditor(false)} className="flex-1 py-2.5 border hairline hover:bg-white/5">Cancel</button>
+              <button onClick={() => setShowCodeEditor(false)} className="flex-1 py-2.5 bg-primary text-primary-foreground hover:opacity-90">Save & compile</button>
+            </div>
+          </div>
         </div>
       )}
 

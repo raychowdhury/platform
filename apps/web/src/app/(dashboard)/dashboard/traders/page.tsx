@@ -34,6 +34,16 @@ export default function TradersPage() {
   const [search, setSearch] = useState("");
   const [style, setStyle] = useState<"All" | Trader["style"]>("All");
   const [open, setOpen] = useState<Trader | null>(null);
+  const [showBuilder, setShowBuilder] = useState(false);
+  const [allocAmount, setAllocAmount] = useState("");
+  const [allocated, setAllocated] = useState(false);
+
+  const placeAllocation = () => {
+    if (!allocAmount) return;
+    setAllocated(true);
+    setAllocAmount("");
+    setTimeout(() => setAllocated(false), 2000);
+  };
 
   const filtered = TRADERS.filter((t) =>
     (style === "All" || t.style === style) &&
@@ -48,7 +58,7 @@ export default function TradersPage() {
           <h1 className="font-display text-3xl tracking-tight mt-1">AI Traders</h1>
           <p className="text-sm text-muted-foreground mt-1">Autonomous agents you can follow, copy, or run as live execution engines.</p>
         </div>
-        <button className="text-xs px-3 py-2 bg-primary text-primary-foreground hover:opacity-90 flex items-center gap-1.5 self-start md:self-auto">
+        <button onClick={() => setShowBuilder(true)} className="text-xs px-3 py-2 bg-primary text-primary-foreground hover:opacity-90 flex items-center gap-1.5 self-start md:self-auto">
           <Cpu className="w-3 h-3" /> Build your own
         </button>
       </div>
@@ -138,6 +148,44 @@ export default function TradersPage() {
         })}
       </section>
 
+      {showBuilder && (
+        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowBuilder(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="glass max-w-md w-full p-6 flex flex-col gap-5">
+            <div className="flex items-center justify-between">
+              <h3 className="font-display text-xl">Build your own trader</h3>
+              <button onClick={() => setShowBuilder(false)} className="p-1 hover:bg-muted"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: "Name", placeholder: "e.g. My Momentum Bot", type: "text" },
+                { label: "Market", placeholder: "e.g. US Equities", type: "text" },
+              ].map(({ label, placeholder, type }) => (
+                <div key={label} className="flex flex-col gap-1.5">
+                  <label className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</label>
+                  <input type={type} placeholder={placeholder} className="bg-transparent border hairline px-3 py-2 text-sm focus:outline-none focus:border-accent/40" />
+                </div>
+              ))}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Style</label>
+                <select className="bg-background border hairline px-3 py-2 text-sm focus:outline-none focus:border-accent/40">
+                  <option>Aggressive</option>
+                  <option>Balanced</option>
+                  <option>Conservative</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Max drawdown %</label>
+                <input type="number" placeholder="e.g. 10" className="bg-transparent border hairline px-3 py-2 text-sm focus:outline-none focus:border-accent/40" />
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowBuilder(false)} className="px-4 py-2 text-xs border hairline hover:bg-muted">Cancel</button>
+              <button onClick={() => setShowBuilder(false)} className="px-4 py-2 text-xs bg-primary text-primary-foreground hover:opacity-90">Create trader</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {open && (
         <div className="fixed inset-0 z-50 bg-foreground/20" onClick={() => setOpen(null)}>
           <aside className="absolute right-0 top-0 h-full w-full max-w-md bg-background border-l hairline p-6 flex flex-col gap-5 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -164,11 +212,23 @@ export default function TradersPage() {
                 regime detection and dynamic position sizing. Capital allocation is risk-parity weighted with a hard {open.drawdown}% drawdown circuit-breaker.
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <button className="flex-1 py-2.5 bg-primary text-primary-foreground text-xs hover:opacity-90 flex items-center justify-center gap-1.5">
-                <TrendingUp className="w-3.5 h-3.5" /> Allocate capital
-              </button>
-              <button className="px-3 py-2.5 border hairline text-xs hover:bg-muted flex items-center gap-1.5"><Settings2 className="w-3.5 h-3.5" />Configure</button>
+            <div className="flex flex-col gap-2">
+              <div className="flex gap-2">
+                <input
+                  value={allocAmount}
+                  onChange={(e) => setAllocAmount(e.target.value)}
+                  placeholder="Amount (USD)"
+                  type="number"
+                  className="flex-1 bg-transparent border hairline px-3 py-2 text-xs focus:outline-none focus:border-accent/40"
+                />
+                <button
+                  onClick={placeAllocation}
+                  disabled={!allocAmount}
+                  className={`px-4 py-2 text-xs flex items-center gap-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${allocated ? "bg-bull/15 border border-bull/30 text-bull" : "bg-primary text-primary-foreground hover:opacity-90"}`}>
+                  <TrendingUp className="w-3.5 h-3.5" /> {allocated ? "Allocated!" : "Allocate"}
+                </button>
+              </div>
+              <button onClick={() => { setOpen(null); }} className="w-full py-2.5 border hairline text-xs hover:bg-muted flex items-center justify-center gap-1.5"><Settings2 className="w-3.5 h-3.5" />Configure</button>
             </div>
           </aside>
         </div>

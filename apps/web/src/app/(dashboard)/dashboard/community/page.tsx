@@ -1,8 +1,9 @@
 "use client";
 import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Users, Hash, Search, Send, TrendingUp, MessageSquare, Heart,
-  Repeat2, Pin, Plus, Image as ImageIcon, Smile, ArrowUpRight, Globe2
+  Repeat2, Pin, Plus, Image as ImageIcon, Smile, ArrowUpRight, Globe2, X
 } from "lucide-react";
 
 
@@ -48,12 +49,18 @@ const TRENDING = [
 ];
 
 export default function CommunityPage() {
+  const router = useRouter();
   const [room, setRoom] = useState(ROOMS[0]);
   const [feed, setFeed] = useState<"trending" | "following" | "live">("trending");
   const [draft, setDraft] = useState("");
   const [posts, setPosts] = useState(POSTS);
   const [liked, setLiked] = useState<Record<string, boolean>>({});
   const [reposted, setReposted] = useState<Record<string, boolean>>({});
+  const [commentOpen, setCommentOpen] = useState<Record<string, boolean>>({});
+  const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
+  const [followed, setFollowed] = useState<Record<string, boolean>>({});
+  const [showRoomModal, setShowRoomModal] = useState(false);
+  const [newRoomName, setNewRoomName] = useState("");
   const [chatInput, setChatInput] = useState("");
   const [messages, setMessages] = useState<{ id: string; user: string; text: string; time: string; me?: boolean }[]>([
     { id: "m1", user: "miratrades", text: "Anyone else watching that NVDA tape? Insane absorption.", time: "10:42" },
@@ -62,6 +69,20 @@ export default function CommunityPage() {
     { id: "m4", user: "diegomx", text: "Sized in at 1124. Stop 1086.", time: "10:46" },
   ]);
   const chatRef = useRef<HTMLDivElement>(null);
+
+  const submitComment = (postId: string) => {
+    const text = commentDraft[postId]?.trim();
+    if (!text) return;
+    setPosts((p) => p.map((post) => post.id === postId ? { ...post, comments: post.comments + 1 } : post));
+    setCommentDraft((d) => ({ ...d, [postId]: "" }));
+    setCommentOpen((c) => ({ ...c, [postId]: false }));
+  };
+
+  const createRoom = () => {
+    if (!newRoomName.trim()) return;
+    setNewRoomName("");
+    setShowRoomModal(false);
+  };
 
   const submitPost = () => {
     if (!draft.trim()) return;
@@ -90,7 +111,7 @@ export default function CommunityPage() {
             <span className="w-1.5 h-1.5 rounded-full bg-bull animate-pulse" />
             <span className="text-muted-foreground">1,142 online</span>
           </div>
-          <button className="px-3 py-1.5 bg-primary text-primary-foreground hover:opacity-90 flex items-center gap-1.5"><Plus className="w-3 h-3" />New room</button>
+          <button onClick={() => setShowRoomModal(true)} className="px-3 py-1.5 bg-primary text-primary-foreground hover:opacity-90 flex items-center gap-1.5"><Plus className="w-3 h-3" />New room</button>
         </div>
       </div>
 
@@ -173,11 +194,26 @@ export default function CommunityPage() {
                         <button onClick={() => setLiked((s) => ({ ...s, [p.id]: !s[p.id] }))} className={`flex items-center gap-1.5 hover:text-bear ${isLiked ? "text-bear" : ""}`}>
                           <Heart className={`w-3.5 h-3.5 ${isLiked ? "fill-current" : ""}`} /> {p.likes + (isLiked ? 1 : 0)}
                         </button>
-                        <button className="flex items-center gap-1.5 hover:text-foreground"><MessageSquare className="w-3.5 h-3.5" /> {p.comments}</button>
+                        <button onClick={() => setCommentOpen((c) => ({ ...c, [p.id]: !c[p.id] }))} className={`flex items-center gap-1.5 hover:text-foreground ${commentOpen[p.id] ? "text-foreground" : ""}`}>
+                          <MessageSquare className="w-3.5 h-3.5" /> {p.comments}
+                        </button>
                         <button onClick={() => setReposted((s) => ({ ...s, [p.id]: !s[p.id] }))} className={`flex items-center gap-1.5 hover:text-bull ${isRepost ? "text-bull" : ""}`}>
                           <Repeat2 className="w-3.5 h-3.5" /> {p.reposts + (isRepost ? 1 : 0)}
                         </button>
                       </div>
+                      {commentOpen[p.id] && (
+                        <div className="flex items-center gap-2 mt-2">
+                          <input
+                            value={commentDraft[p.id] ?? ""}
+                            onChange={(e) => setCommentDraft((d) => ({ ...d, [p.id]: e.target.value }))}
+                            onKeyDown={(e) => e.key === "Enter" && submitComment(p.id)}
+                            placeholder="Write a comment…"
+                            className="flex-1 bg-transparent border hairline px-3 py-1.5 text-xs"
+                            autoFocus
+                          />
+                          <button onClick={() => submitComment(p.id)} className="p-2 bg-primary text-primary-foreground hover:opacity-90"><Send className="w-3 h-3" /></button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </article>
@@ -257,15 +293,46 @@ export default function CommunityPage() {
                   <div className="text-sm leading-none">{s.name}</div>
                   <div className="text-[11px] text-muted-foreground mt-1">{s.handle} · <span className="text-bull">{s.pnl}</span></div>
                 </div>
-                <button className="text-[11px] px-2.5 py-1 border hairline hover:bg-muted">Follow</button>
+                <button
+                  onClick={() => setFollowed((f) => ({ ...f, [s.handle]: !f[s.handle] }))}
+                  className={`text-[11px] px-2.5 py-1 border transition-colors ${followed[s.handle] ? "bg-foreground text-background border-foreground" : "hairline hover:bg-muted"}`}>
+                  {followed[s.handle] ? "Following" : "Follow"}
+                </button>
               </div>
             ))}
-            <button className="text-[11px] text-primary mt-1 flex items-center gap-1 hover:gap-1.5 transition-all">
+            <button onClick={() => router.push("/dashboard/leaderboard")} className="text-[11px] text-primary mt-1 flex items-center gap-1 hover:gap-1.5 transition-all">
               See leaderboard <ArrowUpRight className="w-3 h-3" />
             </button>
           </div>
         </aside>
       </div>
+
+      {showRoomModal && (
+        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowRoomModal(false)}>
+          <div onClick={(e) => e.stopPropagation()} className="glass max-w-sm w-full p-6 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-display text-xl">Create room</h3>
+              <button onClick={() => setShowRoomModal(false)} className="p-1 hover:bg-muted"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] uppercase tracking-wider text-muted-foreground">Room name</label>
+              <input
+                value={newRoomName}
+                onChange={(e) => setNewRoomName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && createRoom()}
+                placeholder="e.g. crypto-options"
+                className="bg-transparent border hairline px-3 py-2 text-sm focus:outline-none focus:border-accent/40"
+                autoFocus
+              />
+              <p className="text-[10px] text-muted-foreground">Lowercase, no spaces (use hyphens)</p>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowRoomModal(false)} className="px-4 py-2 text-xs border hairline hover:bg-muted">Cancel</button>
+              <button onClick={createRoom} disabled={!newRoomName.trim()} className="px-4 py-2 text-xs bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed">Create</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

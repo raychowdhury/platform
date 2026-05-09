@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   User, Camera, Shield, Key, Github, Globe, Clock,
   Check, Pencil, X, Copy, Eye, EyeOff, TrendingUp,
@@ -28,6 +28,15 @@ export default function ProfilePage() {
   const [showCurrentPw, setShowCurrentPw] = useState(false);
   const [showNewPw, setShowNewPw] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [linked, setLinked] = useState<Record<string, boolean>>({ GitHub: true, "X / Twitter": false, Google: true });
+  const [pwSaved, setPwSaved] = useState(false);
+  const [sessions, setSessions] = useState(SESSIONS);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const updatePassword = () => { setPwSaved(true); setShowPwForm(false); setTimeout(() => setPwSaved(false), 2500); };
+  const revokeAll = () => setSessions(arr => arr.filter(s => s.current));
+  const revokeSession = (device: string) => setSessions(arr => arr.filter(s => s.device !== device));
 
   const [form, setForm] = useState({
     name: "Angelina Kovacs",
@@ -111,9 +120,12 @@ export default function ProfilePage() {
                 AK
               </div>
               {editing && (
-                <button className="absolute -bottom-1.5 -right-1.5 w-7 h-7 bg-accent grid place-items-center border-2 border-background">
-                  <Camera className="w-3.5 h-3.5 text-accent-foreground" />
-                </button>
+                <>
+                  <input ref={fileInputRef} type="file" accept="image/*" className="sr-only" onChange={e => { if (e.target.files?.[0]) { /* avatar preview would go here */ } }} />
+                  <button onClick={() => fileInputRef.current?.click()} className="absolute -bottom-1.5 -right-1.5 w-7 h-7 bg-accent grid place-items-center border-2 border-background">
+                    <Camera className="w-3.5 h-3.5 text-accent-foreground" />
+                  </button>
+                </>
               )}
             </div>
             <div className="text-center">
@@ -162,15 +174,15 @@ export default function ProfilePage() {
               { Icon: Github, name: "GitHub", handle: "angelina-k", linked: true },
               { Icon: Twitter, name: "X / Twitter", handle: null, linked: false },
               { Icon: Globe, name: "Google", handle: "angelina@gmail.com", linked: true },
-            ].map(({ Icon, name, handle, linked }) => (
+            ].map(({ Icon, name, handle }) => (
               <div key={name} className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-[12px]">
                   <Icon className="w-4 h-4 text-muted-foreground" strokeWidth={1.4} />
                   <span>{name}</span>
                   {handle && <span className="text-muted-foreground text-[11px]">· {handle}</span>}
                 </div>
-                <button className={`text-[10px] px-2 py-1 border hairline ${linked ? "text-muted-foreground hover:text-bear hover:border-bear/30" : "text-accent border-accent/30 hover:bg-accent/10"}`}>
-                  {linked ? "Unlink" : "Connect"}
+                <button onClick={() => setLinked(l => ({ ...l, [name]: !l[name] }))} className={`text-[10px] px-2 py-1 border hairline transition-colors ${linked[name] ? "text-muted-foreground hover:text-bear hover:border-bear/30" : "text-accent border-accent/30 hover:bg-accent/10"}`}>
+                  {linked[name] ? "Unlink" : "Connect"}
                 </button>
               </div>
             ))}
@@ -259,8 +271,9 @@ export default function ProfilePage() {
                   ))}
                   <div className="flex gap-2 text-[11px]">
                     <button onClick={() => setShowPwForm(false)} className="flex-1 py-2 border hairline hover:bg-white/5">Cancel</button>
-                    <button className="flex-1 py-2 bg-primary text-primary-foreground hover:bg-primary/90 font-medium">Update password</button>
+                    <button onClick={updatePassword} className="flex-1 py-2 bg-primary text-primary-foreground hover:bg-primary/90 font-medium">Update password</button>
                   </div>
+                  {pwSaved && <div className="text-[11px] text-bull text-center">✓ Password updated successfully</div>}
                 </div>
               )}
             </div>
@@ -289,7 +302,7 @@ export default function ProfilePage() {
                   <div className="text-[11px] text-muted-foreground">Permanently removes all data. Cannot be undone.</div>
                 </div>
               </div>
-              <button className="text-[11px] px-3 py-1.5 border border-bear/30 text-bear hover:bg-bear/10">Delete</button>
+              <button onClick={() => setShowDeleteModal(true)} className="text-[11px] px-3 py-1.5 border border-bear/30 text-bear hover:bg-bear/10">Delete</button>
             </div>
           </div>
 
@@ -299,11 +312,11 @@ export default function ProfilePage() {
               <h3 className="font-display text-lg flex items-center gap-2">
                 <LogOut className="w-4 h-4 text-accent" /> Active sessions
               </h3>
-              <button className="text-[11px] px-3 py-1.5 border hairline hover:bg-white/5 text-muted-foreground hover:text-bear">
+              <button onClick={revokeAll} className="text-[11px] px-3 py-1.5 border hairline hover:bg-white/5 text-muted-foreground hover:text-bear">
                 Revoke all others
               </button>
             </div>
-            {SESSIONS.map((s) => (
+            {sessions.map((s) => (
               <div key={s.device} className="flex items-center justify-between py-2 border-b hairline last:border-0">
                 <div>
                   <div className="text-sm flex items-center gap-2">
@@ -315,7 +328,7 @@ export default function ProfilePage() {
                   <div className="text-[11px] text-muted-foreground mt-0.5">{s.location} · {s.last}</div>
                 </div>
                 {!s.current && (
-                  <button className="text-[11px] px-2.5 py-1 border hairline text-muted-foreground hover:text-bear hover:border-bear/30">
+                  <button onClick={() => revokeSession(s.device)} className="text-[11px] px-2.5 py-1 border hairline text-muted-foreground hover:text-bear hover:border-bear/30">
                     Revoke
                   </button>
                 )}
@@ -341,6 +354,24 @@ export default function ProfilePage() {
         </div>
       </div>
 
+      {/* Delete account modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-background/80 backdrop-blur-sm" onClick={() => setShowDeleteModal(false)}>
+          <div className="glass max-w-sm w-full p-6 flex flex-col gap-4" onClick={e => e.stopPropagation()}>
+            <h3 className="font-display text-xl text-bear">Delete account?</h3>
+            <p className="text-xs text-muted-foreground">This will permanently delete your account, all data, positions, and trading history. This action cannot be undone.</p>
+            <label className="flex flex-col gap-1.5 text-xs">
+              <span className="text-muted-foreground">Type <span className="font-mono text-bear">DELETE</span> to confirm</span>
+              <input className="bg-white/[0.03] border border-bear/30 px-3 py-2 font-mono focus:outline-none focus:border-bear/60" placeholder="DELETE" />
+            </label>
+            <div className="flex gap-2 text-[11px]">
+              <button onClick={() => setShowDeleteModal(false)} className="flex-1 py-2.5 border hairline hover:bg-white/5">Cancel</button>
+              <button onClick={() => setShowDeleteModal(false)} className="flex-1 py-2.5 border border-bear/30 text-bear hover:bg-bear/10">Delete account</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 2FA modal */}
       {show2FA && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-background/80 backdrop-blur-sm p-4" onClick={() => setShow2FA(false)}>
@@ -362,7 +393,7 @@ export default function ProfilePage() {
             </div>
             <div className="flex gap-2 text-[11px]">
               <button onClick={() => setShow2FA(false)} className="flex-1 py-2.5 border hairline hover:bg-white/5">Close</button>
-              <button className="flex-1 py-2.5 border border-bear/30 text-bear hover:bg-bear/10">Disable 2FA</button>
+              <button onClick={() => setShow2FA(false)} className="flex-1 py-2.5 border border-bear/30 text-bear hover:bg-bear/10">Disable 2FA</button>
             </div>
           </div>
         </div>

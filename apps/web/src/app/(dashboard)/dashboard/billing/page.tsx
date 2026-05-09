@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Check, Sparkles, Zap, Crown, CreditCard, Download, ArrowUpRight,
   Calendar, Receipt, AlertCircle, Plus, X, Shield, TrendingUp
@@ -75,6 +76,7 @@ const INVOICES = [
 ];
 
 export default function BillingPage() {
+  const router = useRouter();
   const [cycle, setCycle] = useState<Cycle>("monthly");
   const [currentPlan, setCurrentPlan] = useState<PlanId>("pro");
   const [confirmPlan, setConfirmPlan] = useState<PlanId | null>(null);
@@ -84,6 +86,13 @@ export default function BillingPage() {
   ]);
   const [showAddCard, setShowAddCard] = useState(false);
   const [autoRenew, setAutoRenew] = useState(true);
+  const [exportDone, setExportDone] = useState(false);
+  const [downloadedInvoice, setDownloadedInvoice] = useState<string | null>(null);
+  const [showEditBilling, setShowEditBilling] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+
+  const exportAll = () => { setExportDone(true); setTimeout(() => setExportDone(false), 1500); };
+  const downloadInvoice = (id: string) => { setDownloadedInvoice(id); setTimeout(() => setDownloadedInvoice(null), 1500); };
 
   const setPrimary = (id: string) =>
     setMethods((arr) => arr.map((m) => ({ ...m, primary: m.id === id })));
@@ -102,7 +111,7 @@ export default function BillingPage() {
         </div>
         <div className="flex items-center gap-2 text-xs">
           <span className="text-muted-foreground">Need help?</span>
-          <button className="px-3 py-1.5 border hairline hover:bg-white/5">Contact billing</button>
+          <button onClick={() => router.push("/dashboard/help")} className="px-3 py-1.5 border hairline hover:bg-white/5">Contact billing</button>
         </div>
       </div>
 
@@ -302,7 +311,7 @@ export default function BillingPage() {
               <div className="mt-1 font-mono">DE 287 461 902</div>
             </div>
           </div>
-          <button className="text-xs px-3 py-2 border hairline hover:bg-white/5 flex items-center justify-center gap-1.5">
+          <button onClick={() => setShowEditBilling(true)} className="text-xs px-3 py-2 border hairline hover:bg-white/5 flex items-center justify-center gap-1.5">
             Edit billing details <ArrowUpRight className="w-3 h-3" />
           </button>
         </div>
@@ -314,8 +323,8 @@ export default function BillingPage() {
           <h3 className="font-display text-lg flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-accent" /> Invoice history
           </h3>
-          <button className="text-xs px-2.5 py-1.5 border hairline hover:bg-white/5 flex items-center gap-1">
-            <Download className="w-3 h-3" /> Export all
+          <button onClick={exportAll} className={`text-xs px-2.5 py-1.5 border flex items-center gap-1 transition-colors ${exportDone ? "border-bull/30 text-bull bg-bull/10" : "hairline hover:bg-white/5"}`}>
+            <Download className="w-3 h-3" /> {exportDone ? "Exported!" : "Export all"}
           </button>
         </div>
         <div className="overflow-x-auto">
@@ -343,8 +352,8 @@ export default function BillingPage() {
                     </span>
                   </td>
                   <td className="py-3 text-right">
-                    <button className="opacity-60 group-hover:opacity-100 p-1.5 hover:bg-white/5" title="Download PDF">
-                      <Download className="w-3.5 h-3.5" />
+                    <button onClick={() => downloadInvoice(inv.id)} className="opacity-60 group-hover:opacity-100 p-1.5 hover:bg-white/5" title="Download PDF">
+                      {downloadedInvoice === inv.id ? <Check className="w-3.5 h-3.5 text-bull" /> : <Download className="w-3.5 h-3.5" />}
                     </button>
                   </td>
                 </tr>
@@ -365,10 +374,48 @@ export default function BillingPage() {
             </div>
           </div>
         </div>
-        <button className="text-xs px-3 py-2 border border-bear/30 text-bear hover:bg-bear/10">
+        <button onClick={() => setShowCancelModal(true)} className="text-xs px-3 py-2 border border-bear/30 text-bear hover:bg-bear/10">
           Cancel plan
         </button>
       </section>
+
+      {/* Edit billing details modal */}
+      {showEditBilling && (
+        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-background/80 backdrop-blur-sm" onClick={() => setShowEditBilling(false)}>
+          <div className="glass max-w-md w-full p-6 flex flex-col gap-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-display text-xl">Edit billing details</h3>
+              <button onClick={() => setShowEditBilling(false)} className="p-1 hover:bg-white/5"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="flex flex-col gap-3 text-xs">
+              {[["Name", "Angelina Kovacs"], ["Email", "angelina@trevise.app"], ["Company", "Trevise Trading Ltd."], ["VAT ID", "DE 287 461 902"]].map(([l, v]) => (
+                <label key={l} className="flex flex-col gap-1.5">
+                  <span className="text-muted-foreground">{l}</span>
+                  <input defaultValue={v} className="bg-white/[0.03] border hairline px-3 py-2 focus:outline-none focus:border-accent/40" />
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-2 text-[11px]">
+              <button onClick={() => setShowEditBilling(false)} className="flex-1 py-2.5 border hairline hover:bg-white/5">Cancel</button>
+              <button onClick={() => setShowEditBilling(false)} className="flex-1 py-2.5 bg-primary text-primary-foreground hover:opacity-90">Save changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel plan modal */}
+      {showCancelModal && (
+        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-background/80 backdrop-blur-sm" onClick={() => setShowCancelModal(false)}>
+          <div className="glass max-w-sm w-full p-6 flex flex-col gap-4" onClick={e => e.stopPropagation()}>
+            <h3 className="font-display text-xl">Cancel subscription?</h3>
+            <p className="text-xs text-muted-foreground">You'll keep Pro access until Jun 1, 2026. After that, your account will revert to the free Starter plan. No refunds for the current period.</p>
+            <div className="flex gap-2 text-[11px]">
+              <button onClick={() => setShowCancelModal(false)} className="flex-1 py-2.5 border hairline hover:bg-white/5">Keep plan</button>
+              <button onClick={() => { setCurrentPlan("starter"); setShowCancelModal(false); }} className="flex-1 py-2.5 border border-bear/30 text-bear hover:bg-bear/10">Cancel subscription</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add card modal */}
       {showAddCard && (

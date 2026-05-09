@@ -1,4 +1,6 @@
 "use client";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { PortfolioOverview } from "@/components/dashboard/PortfolioOverview";
 import { MarketChart } from "@/components/dashboard/MarketChart";
 import { Watchlist } from "@/components/dashboard/Watchlist";
@@ -13,6 +15,22 @@ import { CommunityChat } from "@/components/dashboard/CommunityChat";
 
 
 export default function Dashboard() {
+  const router = useRouter();
+  const [exporting, setExporting] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanDone, setScanDone] = useState(false);
+
+  const handleExport = () => {
+    setExporting(true);
+    setTimeout(() => setExporting(false), 1500);
+  };
+
+  const handleScan = () => {
+    setScanning(true);
+    setScanDone(false);
+    setTimeout(() => { setScanning(false); setScanDone(true); setTimeout(() => setScanDone(false), 2500); }, 2000);
+  };
+
   return (
     <>
       <div className="flex items-end justify-between gap-4 flex-wrap">
@@ -27,9 +45,13 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2 text-[11px]">
-          <button className="px-3 py-2 hover:bg-white/5 border hairline text-muted-foreground hover:text-foreground">Export</button>
-          <button className="px-3 py-2 hover:bg-white/5 border hairline text-muted-foreground hover:text-foreground">Customize</button>
-          <button className="px-3 py-2 bg-accent/15 border border-accent/30 text-accent">Run AI scan</button>
+          <button onClick={handleExport} className={`px-3 py-2 border hairline transition-colors ${exporting ? "text-bull border-bull/30 bg-bull/10" : "hover:bg-white/5 text-muted-foreground hover:text-foreground"}`}>
+            {exporting ? "✓ Exported" : "Export"}
+          </button>
+          <button onClick={() => router.push("/dashboard/settings")} className="px-3 py-2 hover:bg-white/5 border hairline text-muted-foreground hover:text-foreground">Customize</button>
+          <button onClick={handleScan} disabled={scanning} className={`px-3 py-2 border transition-colors ${scanDone ? "bg-bull/15 border-bull/30 text-bull" : "bg-accent/15 border border-accent/30 text-accent hover:bg-accent/25"} disabled:opacity-60`}>
+            {scanning ? "Scanning…" : scanDone ? "✓ 3 signals found" : "Run AI scan"}
+          </button>
         </div>
       </div>
 

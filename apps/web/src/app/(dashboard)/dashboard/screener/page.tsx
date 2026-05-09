@@ -63,6 +63,22 @@ export default function ScreenerPage() {
   const [universe, setUniverse] = useState<"Stocks" | "Futures" | "ETFs" | "Forex">("Stocks");
   const results = useMemo(() => buildResults(), []);
   const filtered = sector === "All" ? results : results.filter(r => r.sector === sector);
+  const [starredRows, setStarredRows] = useState<Set<string>>(new Set());
+  const [tradeModal, setTradeModal] = useState<typeof results[number] | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [querySaved, setQuerySaved] = useState(false);
+  const [aiScreening, setAiScreening] = useState(false);
+  const [aiDone, setAiDone] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
+  const [sortBy, setSortBy] = useState("AI score");
+  const [columnsOpen, setColumnsOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const SORT_OPTIONS = ["AI score", "Price", "24h change", "RSI", "P/E", "Volume", "Market cap"];
+
+  const exportCSV = () => { setExporting(true); setTimeout(() => setExporting(false), 1500); };
+  const saveQuery = () => { setQuerySaved(true); setTimeout(() => setQuerySaved(false), 1500); };
+  const aiScreen = () => { setAiScreening(true); setAiDone(false); setTimeout(() => { setAiScreening(false); setAiDone(true); }, 2000); };
+  const toggleStar = (sym: string) => setStarredRows(s => { const n = new Set(s); n.has(sym) ? n.delete(sym) : n.add(sym); return n; });
 
   return (
     <>
@@ -78,9 +94,9 @@ export default function ScreenerPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 text-[11px]">
-          <button className="px-3 py-2 hover:bg-white/5 border hairline text-muted-foreground hover:text-foreground flex items-center gap-1.5"><Download className="w-3 h-3" /> Export CSV</button>
-          <button className="px-3 py-2 hover:bg-white/5 border hairline text-muted-foreground hover:text-foreground flex items-center gap-1.5"><Save className="w-3 h-3" /> Save query</button>
-          <button className="px-3 py-2 bg-accent/15 border border-accent/30 text-accent flex items-center gap-1.5"><Sparkles className="w-3 h-3" /> AI screen</button>
+          <button onClick={exportCSV} className={`px-3 py-2 border transition-colors flex items-center gap-1.5 ${exporting ? "border-bull/30 text-bull bg-bull/10" : "hover:bg-white/5 hairline text-muted-foreground hover:text-foreground"}`}><Download className="w-3 h-3" /> {exporting ? "Exported!" : "Export CSV"}</button>
+          <button onClick={saveQuery} className={`px-3 py-2 border transition-colors flex items-center gap-1.5 ${querySaved ? "border-bull/30 text-bull bg-bull/10" : "hover:bg-white/5 hairline text-muted-foreground hover:text-foreground"}`}><Save className="w-3 h-3" /> {querySaved ? "Saved!" : "Save query"}</button>
+          <button onClick={aiScreen} disabled={aiScreening} className={`px-3 py-2 border transition-colors flex items-center gap-1.5 ${aiDone ? "bg-bull/15 border-bull/30 text-bull" : "bg-accent/15 border-accent/30 text-accent hover:bg-accent/25"} disabled:opacity-60`}><Sparkles className="w-3 h-3" /> {aiScreening ? "Scanning…" : aiDone ? "✓ 12 found" : "AI screen"}</button>
         </div>
       </div>
 
@@ -168,9 +184,25 @@ export default function ScreenerPage() {
               <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input placeholder="Search results…" className="w-full pl-9 pr-3 py-2 text-xs bg-white/[0.03] border hairline focus:outline-none focus:border-accent/40" />
             </div>
-            <div className="flex items-center gap-1 text-[11px]">
-              <button className="px-2.5 py-1.5 border hairline text-muted-foreground hover:text-foreground flex items-center gap-1"><ArrowUpDown className="w-3 h-3" /> Sort: AI score <ChevronDown className="w-3 h-3" /></button>
-              <button className="px-2.5 py-1.5 border hairline text-muted-foreground hover:text-foreground">Columns</button>
+            <div className="flex items-center gap-1 text-[11px] relative">
+              <div className="relative">
+                <button onClick={() => { setSortOpen(o => !o); setColumnsOpen(false); }} className={`px-2.5 py-1.5 border hairline flex items-center gap-1 transition-colors ${sortOpen ? "bg-white/[0.06] text-foreground" : "text-muted-foreground hover:text-foreground"}`}><ArrowUpDown className="w-3 h-3" /> Sort: {sortBy} <ChevronDown className="w-3 h-3" /></button>
+                {sortOpen && (
+                  <div className="absolute right-0 top-full mt-1 glass z-20 flex flex-col min-w-[160px]">
+                    {SORT_OPTIONS.map(o => <button key={o} onClick={() => { setSortBy(o); setSortOpen(false); }} className={`text-left px-3 py-2 hover:bg-white/[0.06] ${sortBy === o ? "text-accent" : "text-muted-foreground"}`}>{o}</button>)}
+                  </div>
+                )}
+              </div>
+              <button onClick={() => { setColumnsOpen(o => !o); setSortOpen(false); }} className={`px-2.5 py-1.5 border hairline transition-colors ${columnsOpen ? "bg-white/[0.06] text-foreground" : "text-muted-foreground hover:text-foreground"}`}>Columns</button>
+              {columnsOpen && (
+                <div className="absolute right-0 top-full mt-1 glass z-20 p-3 flex flex-col gap-1.5 min-w-[160px]">
+                  {["Price", "24h", "RSI", "P/E", "Cap", "Vol", "AI score", "Trend"].map(col => (
+                    <label key={col} className="flex items-center gap-2 text-[11px] cursor-pointer">
+                      <input type="checkbox" defaultChecked className="accent-primary" /> {col}
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -195,7 +227,7 @@ export default function ScreenerPage() {
               <tbody>
                 {filtered.map((r, i) => (
                   <tr key={r.sym} className="border-b hairline hover:bg-white/[0.025] transition-colors">
-                    <td className="pl-4"><Star className="w-3.5 h-3.5 text-muted-foreground hover:text-amber-300 cursor-pointer" /></td>
+                    <td className="pl-4"><button onClick={() => toggleStar(r.sym + i)}><Star className={`w-3.5 h-3.5 cursor-pointer ${starredRows.has(r.sym + i) ? "text-amber-300 fill-amber-300" : "text-muted-foreground hover:text-amber-300"}`} /></button></td>
                     <td className="py-3">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-white/10 to-white/[0.02] grid place-items-center text-[10px] font-mono">{r.sym.slice(0,2)}</div>
@@ -238,7 +270,7 @@ export default function ScreenerPage() {
                       </div>
                     </td>
                     <td className="pr-4 text-right">
-                      <button className="text-[11px] px-2 py-1 border hairline text-muted-foreground hover:text-foreground hover:bg-white/[0.04]">Trade</button>
+                      <button onClick={() => setTradeModal(r)} className="text-[11px] px-2 py-1 border hairline text-muted-foreground hover:text-foreground hover:bg-white/[0.04]">Trade</button>
                     </td>
                   </tr>
                 ))}
@@ -249,15 +281,38 @@ export default function ScreenerPage() {
           <div className="flex items-center justify-between p-4 border-t hairline text-[11px] text-muted-foreground">
             <span>Showing {filtered.length} of {results.length} results</span>
             <div className="flex items-center gap-1">
-              <button className="px-2 py-1 border hairline">‹</button>
-              <button className="px-2 py-1 border hairline bg-white/[0.06] text-foreground">1</button>
-              <button className="px-2 py-1 border hairline">2</button>
-              <button className="px-2 py-1 border hairline">3</button>
-              <button className="px-2 py-1 border hairline">›</button>
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} className="px-2 py-1 border hairline hover:bg-white/[0.06]">‹</button>
+              {[1, 2, 3].map(p => (
+                <button key={p} onClick={() => setPage(p)} className={`px-2 py-1 border hairline ${page === p ? "bg-white/[0.06] text-foreground" : "hover:bg-white/[0.04]"}`}>{p}</button>
+              ))}
+              <button onClick={() => setPage(p => Math.min(3, p + 1))} className="px-2 py-1 border hairline hover:bg-white/[0.06]">›</button>
             </div>
           </div>
         </section>
       </div>
+      {tradeModal && (
+        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setTradeModal(null)}>
+          <div onClick={e => e.stopPropagation()} className="glass max-w-sm w-full p-6 flex flex-col gap-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Trade</div>
+                <h3 className="font-display text-2xl mt-1">{tradeModal.sym}</h3>
+                <p className="text-xs text-muted-foreground">{tradeModal.name}</p>
+              </div>
+              <button onClick={() => setTradeModal(null)} className="text-muted-foreground hover:text-foreground p-1"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center text-xs">
+              <div className="border hairline p-2"><div className="font-mono">${tradeModal.price.toFixed(2)}</div><div className="text-muted-foreground">Price</div></div>
+              <div className="border hairline p-2"><div className={`font-mono ${tradeModal.ch >= 0 ? "text-bull" : "text-bear"}`}>{tradeModal.ch >= 0 ? "+" : ""}{tradeModal.ch.toFixed(2)}%</div><div className="text-muted-foreground">24h</div></div>
+              <div className="border hairline p-2"><div className="font-mono">{tradeModal.score}</div><div className="text-muted-foreground">AI score</div></div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setTradeModal(null)} className="py-2.5 bg-bull/15 border border-bull/30 text-bull hover:bg-bull/25 transition-colors">Buy</button>
+              <button onClick={() => setTradeModal(null)} className="py-2.5 bg-bear/15 border border-bear/30 text-bear hover:bg-bear/25 transition-colors">Sell</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

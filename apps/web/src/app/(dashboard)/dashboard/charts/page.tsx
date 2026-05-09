@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { genCandles, rand } from "@/lib/chart-data";
 import {
   Bar, BarChart, ComposedChart, Line, ResponsiveContainer,
@@ -138,6 +139,7 @@ function ChartPanel({
   const [symbol, setSymbol]       = useState(SYMBOLS[defaultSymIdx % SYMBOLS.length]);
   const [showPicker, setShowPicker] = useState(false);
   const [symSearch, setSymSearch]   = useState("");
+  const [starred, setStarred]       = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   const data      = useMemo(() => genCandles(tf.length + 9, 90), [tf]);
@@ -231,8 +233,8 @@ function ChartPanel({
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground border hairline px-1.5 py-0.5 hidden lg:inline-flex">
                 {symbol.type} · {symbol.exchange}
               </span>
-              <button className="text-muted-foreground hover:text-amber-300">
-                <Star className="w-3.5 h-3.5" />
+              <button onClick={() => setStarred(s => !s)} className={`transition-colors ${starred ? "text-amber-300" : "text-muted-foreground hover:text-amber-300"}`}>
+                <Star className={`w-3.5 h-3.5 ${starred ? "fill-current" : ""}`} />
               </button>
             </>
           )}
@@ -451,9 +453,28 @@ export default function ChartsPage() {
   const [layout, setLayout]           = useState<Layout>("1x1");
   const [activePanel, setActivePanel] = useState(0);
   const [bookCollapsed, setBookCollapsed] = useState(false);
+  const [snapped, setSnapped]           = useState(false);
+  const [chartSaved, setChartSaved]     = useState(false);
+  const [shared, setShared]             = useState(false);
+  const [maximized, setMaximized]       = useState(false);
+  const [orderSide, setOrderSide]       = useState<"Buy" | "Sell" | null>(null);
+  const [orderAmount, setOrderAmount]   = useState("");
+  const [orderPlaced, setOrderPlaced]   = useState(false);
+  const router = useRouter();
 
   const book = useMemo(() => genBook(3), []);
   const last = useMemo(() => genBook(3).bids[0], []);
+
+  const snap = () => { setSnapped(true); setTimeout(() => setSnapped(false), 1500); };
+  const saveChart = () => { setChartSaved(true); setTimeout(() => setChartSaved(false), 1500); };
+  const share = () => { setShared(true); setTimeout(() => setShared(false), 1500); };
+  const placeOrder = () => {
+    if (!orderAmount) return;
+    setOrderPlaced(true);
+    setOrderSide(null);
+    setOrderAmount("");
+    setTimeout(() => setOrderPlaced(false), 2000);
+  };
 
   const panelCount = PANEL_COUNT[layout];
   const compact    = layout !== "1x1";
@@ -486,17 +507,17 @@ export default function ChartsPage() {
           ))}
         </div>
         <div className="flex items-center gap-1">
-          <button className="px-2.5 py-1.5 text-[11px] border hairline text-muted-foreground hover:text-foreground flex items-center gap-1"><Bell className="w-3 h-3" /> Alert</button>
-          <button className="px-2.5 py-1.5 text-[11px] border hairline text-muted-foreground hover:text-foreground flex items-center gap-1"><Camera className="w-3 h-3" /> Snap</button>
-          <button className="px-2.5 py-1.5 text-[11px] border hairline text-muted-foreground hover:text-foreground flex items-center gap-1"><Save className="w-3 h-3" /> Save</button>
-          <button className="px-2.5 py-1.5 text-[11px] border hairline text-muted-foreground hover:text-foreground"><Share2 className="w-3 h-3" /></button>
-          <button className="px-2.5 py-1.5 text-[11px] border hairline text-muted-foreground hover:text-foreground"><Settings2 className="w-3 h-3" /></button>
-          <button className="px-2.5 py-1.5 text-[11px] border hairline text-muted-foreground hover:text-foreground"><Maximize2 className="w-3 h-3" /></button>
+          <button onClick={() => router.push("/dashboard/alerts")} className="px-2.5 py-1.5 text-[11px] border hairline text-muted-foreground hover:text-foreground flex items-center gap-1"><Bell className="w-3 h-3" /> Alert</button>
+          <button onClick={snap} className={`px-2.5 py-1.5 text-[11px] border transition-colors flex items-center gap-1 ${snapped ? "border-bull/30 text-bull bg-bull/10" : "hairline text-muted-foreground hover:text-foreground"}`}><Camera className="w-3 h-3" /> {snapped ? "Saved!" : "Snap"}</button>
+          <button onClick={saveChart} className={`px-2.5 py-1.5 text-[11px] border transition-colors flex items-center gap-1 ${chartSaved ? "border-bull/30 text-bull bg-bull/10" : "hairline text-muted-foreground hover:text-foreground"}`}><Save className="w-3 h-3" /> {chartSaved ? "Saved!" : "Save"}</button>
+          <button onClick={share} className={`px-2.5 py-1.5 text-[11px] border transition-colors ${shared ? "border-accent/30 text-accent bg-accent/10" : "hairline text-muted-foreground hover:text-foreground"}`} title={shared ? "Link copied!" : "Share"}><Share2 className="w-3 h-3" /></button>
+          <button onClick={() => router.push("/dashboard/settings")} className="px-2.5 py-1.5 text-[11px] border hairline text-muted-foreground hover:text-foreground" title="Chart settings"><Settings2 className="w-3 h-3" /></button>
+          <button onClick={() => setMaximized(m => !m)} className={`px-2.5 py-1.5 text-[11px] border transition-colors ${maximized ? "border-accent/30 text-accent bg-accent/10" : "hairline text-muted-foreground hover:text-foreground"}`} title={maximized ? "Exit fullscreen" : "Fullscreen"}><Maximize2 className="w-3 h-3" /></button>
         </div>
       </div>
 
       {/* ── Chart + Order book grid ── */}
-      <div className={`grid grid-cols-1 gap-5 ${bookCollapsed ? "xl:grid-cols-[1fr_36px]" : "xl:grid-cols-[1fr_280px]"}`}>
+      <div className={`grid grid-cols-1 gap-5 xl:transition-[grid-template-columns] xl:duration-300 xl:ease-in-out ${bookCollapsed ? "xl:grid-cols-[1fr_36px]" : "xl:grid-cols-[1fr_280px]"}`}>
         {/* Chart workspace */}
         <section className="glass p-0 flex flex-col order-1 overflow-hidden">
           <div className={`${gridClass[layout]} overflow-hidden`} style={gridStyle}>
@@ -514,73 +535,80 @@ export default function ChartsPage() {
         </section>
 
         {/* ── Order book ── */}
-        <aside className="glass flex flex-col order-2 overflow-hidden">
-          {bookCollapsed ? (
-            /* Collapsed strip */
+        <aside className="glass flex flex-col order-2 overflow-hidden relative">
+          {/* Collapsed strip — fades in when collapsed */}
+          <div className={`absolute inset-0 flex flex-col items-center justify-center transition-opacity duration-200 ${bookCollapsed ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}>
             <button
               onClick={() => setBookCollapsed(false)}
               title="Expand order book"
-              className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground hover:text-foreground transition-colors"
+              className="flex-1 w-full flex flex-col items-center justify-center gap-3 text-muted-foreground hover:text-foreground transition-colors"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
               <span className="text-[9px] font-mono uppercase tracking-[0.25em]" style={{ writingMode: "vertical-rl" }}>Book</span>
             </button>
-          ) : (
-            <>
-              <div className="px-4 py-3 border-b hairline flex items-center justify-between shrink-0">
-                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Order book</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono text-muted-foreground">0.01 ▾</span>
-                  <button
-                    onClick={() => setBookCollapsed(true)}
-                    title="Collapse order book"
-                    className="text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
+          </div>
+
+          {/* Expanded content — fades in when expanded */}
+          <div className={`flex flex-col h-full transition-opacity duration-200 ${bookCollapsed ? "opacity-0 pointer-events-none" : "opacity-100"}`}>
+            <div className="px-4 py-3 border-b hairline flex items-center justify-between shrink-0">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Order book</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono text-muted-foreground">0.01 ▾</span>
+                <button
+                  onClick={() => setBookCollapsed(true)}
+                  title="Collapse order book"
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 px-4 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground border-b hairline shrink-0">
+              <span>Price</span>
+              <span className="text-right">Size</span>
+              <span className="text-right">Total</span>
+            </div>
+            <div className="flex flex-col overflow-y-auto">
+              {book.asks.slice().reverse().map((a, i) => (
+                <div key={i} className="relative grid grid-cols-3 px-4 py-1 text-[11px] font-mono">
+                  <div className="absolute inset-y-0 right-0 bg-bear/10" style={{ width: `${a.s * 18}%` }} />
+                  <span className="relative text-bear">{a.p.toFixed(2)}</span>
+                  <span className="relative text-right">{a.s.toFixed(3)}</span>
+                  <span className="relative text-right text-muted-foreground">{(a.p * a.s).toFixed(0)}</span>
                 </div>
-              </div>
-              <div className="grid grid-cols-3 px-4 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground border-b hairline shrink-0">
-                <span>Price</span>
-                <span className="text-right">Size</span>
-                <span className="text-right">Total</span>
-              </div>
-              <div className="flex flex-col overflow-y-auto">
-                {book.asks.slice().reverse().map((a, i) => (
-                  <div key={i} className="relative grid grid-cols-3 px-4 py-1 text-[11px] font-mono">
-                    <div className="absolute inset-y-0 right-0 bg-bear/10" style={{ width: `${a.s * 18}%` }} />
-                    <span className="relative text-bear">{a.p.toFixed(2)}</span>
-                    <span className="relative text-right">{a.s.toFixed(3)}</span>
-                    <span className="relative text-right text-muted-foreground">{(a.p * a.s).toFixed(0)}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="px-4 py-2 border-y hairline flex items-center justify-between shrink-0">
-                <span className="font-display text-lg text-bull">{book.bids[0].p.toFixed(2)}</span>
-                <span className="text-[10px] text-muted-foreground font-mono">
-                  spread {(book.asks[0].p - book.bids[0].p).toFixed(2)}
-                </span>
-              </div>
-              <div className="flex flex-col overflow-y-auto">
-                {book.bids.map((b, i) => (
-                  <div key={i} className="relative grid grid-cols-3 px-4 py-1 text-[11px] font-mono">
-                    <div className="absolute inset-y-0 right-0 bg-bull/10" style={{ width: `${b.s * 18}%` }} />
-                    <span className="relative text-bull">{b.p.toFixed(2)}</span>
-                    <span className="relative text-right">{b.s.toFixed(3)}</span>
-                    <span className="relative text-right text-muted-foreground">{(b.p * b.s).toFixed(0)}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="p-3 border-t hairline flex flex-col gap-2 mt-auto shrink-0">
-                <div className="grid grid-cols-2 gap-1 text-[11px]">
-                  <button className="py-2 bg-bull/15 border border-bull/30 text-bull font-medium">Buy</button>
-                  <button className="py-2 bg-bear/15 border border-bear/30 text-bear font-medium">Sell</button>
+              ))}
+            </div>
+            <div className="px-4 py-2 border-y hairline flex items-center justify-between shrink-0">
+              <span className="font-display text-lg text-bull">{book.bids[0].p.toFixed(2)}</span>
+              <span className="text-[10px] text-muted-foreground font-mono">
+                spread {(book.asks[0].p - book.bids[0].p).toFixed(2)}
+              </span>
+            </div>
+            <div className="flex flex-col overflow-y-auto">
+              {book.bids.map((b, i) => (
+                <div key={i} className="relative grid grid-cols-3 px-4 py-1 text-[11px] font-mono">
+                  <div className="absolute inset-y-0 right-0 bg-bull/10" style={{ width: `${b.s * 18}%` }} />
+                  <span className="relative text-bull">{b.p.toFixed(2)}</span>
+                  <span className="relative text-right">{b.s.toFixed(3)}</span>
+                  <span className="relative text-right text-muted-foreground">{(b.p * b.s).toFixed(0)}</span>
                 </div>
-                <input placeholder="Amount" className="w-full bg-white/[0.03] border hairline px-2 py-1.5 text-[11px] font-mono focus:outline-none focus:border-accent/40" />
-                <button className="text-[11px] py-2 bg-primary text-primary-foreground font-medium">Place market order</button>
+              ))}
+            </div>
+            <div className="p-3 border-t hairline flex flex-col gap-2 mt-auto shrink-0">
+              <div className="grid grid-cols-2 gap-1 text-[11px]">
+                <button onClick={() => setOrderSide("Buy")} className={`py-2 font-medium transition-colors ${orderSide === "Buy" ? "bg-bull/40 border border-bull text-bull" : "bg-bull/15 border border-bull/30 text-bull hover:bg-bull/25"}`}>Buy</button>
+                <button onClick={() => setOrderSide("Sell")} className={`py-2 font-medium transition-colors ${orderSide === "Sell" ? "bg-bear/40 border border-bear text-bear" : "bg-bear/15 border border-bear/30 text-bear hover:bg-bear/25"}`}>Sell</button>
               </div>
-            </>
-          )}
+              <input value={orderAmount} onChange={e => setOrderAmount(e.target.value)} placeholder="Amount" className="w-full bg-white/[0.03] border hairline px-2 py-1.5 text-[11px] font-mono focus:outline-none focus:border-accent/40" />
+              {orderPlaced ? (
+                <div className="text-[11px] py-2 bg-bull/15 border border-bull/30 text-bull text-center font-medium">✓ Order placed</div>
+              ) : (
+                <button onClick={placeOrder} disabled={!orderSide || !orderAmount} className={`text-[11px] py-2 font-medium transition-colors ${orderSide ? "bg-primary text-primary-foreground hover:bg-primary/80" : "bg-white/5 text-muted-foreground cursor-not-allowed"}`}>
+                  {orderSide ? `Place ${orderSide} order` : "Select Buy or Sell"}
+                </button>
+              )}
+            </div>
+          </div>
         </aside>
       </div>
     </>

@@ -74,6 +74,13 @@ export default function MarketsPage() {
   const [stars, setStars] = useState<Set<string>>(new Set(["AAPL", "NVDA"]));
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const [tradeModal, setTradeModal] = useState<typeof ASSETS[number] | null>(null);
+  const [watchlistAdded, setWatchlistAdded] = useState(false);
+  const [filterOpen, setFilterOpen] = useState(false);
+
+  const addToWatchlist = () => {
+    setWatchlistAdded(true);
+    setTimeout(() => setWatchlistAdded(false), 1500);
+  };
 
   const filteredAssets = ASSETS.filter(
     (a) => a.sym.toLowerCase().includes(search.toLowerCase()) || a.name.toLowerCase().includes(search.toLowerCase())
@@ -120,7 +127,7 @@ export default function MarketsPage() {
               </div>
             )}
           </div>
-          <button className="px-3 py-2 bg-accent/15 border border-accent/30 text-accent cursor-pointer hover:bg-accent/25 transition-colors">Add to watchlist</button>
+          <button onClick={addToWatchlist} className={`px-3 py-2 border transition-colors cursor-pointer ${watchlistAdded ? "bg-bull/15 border-bull/30 text-bull" : "bg-accent/15 border-accent/30 text-accent hover:bg-accent/25"}`}>{watchlistAdded ? "✓ Added" : "Add to watchlist"}</button>
         </div>
       </div>
 
@@ -166,8 +173,21 @@ export default function MarketsPage() {
               className={`px-2.5 py-1.5 border hairline cursor-pointer transition-colors ${c === cat ? "bg-white/[0.06] text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-white/[0.03]"}`}>{c}</button>
           ))}
         </div>
-        <button className="px-2.5 py-1.5 border hairline text-[11px] flex items-center gap-1 text-muted-foreground hover:text-foreground cursor-pointer"><Filter className="w-3 h-3" /> Filters</button>
+        <button onClick={() => setFilterOpen(o => !o)} className={`px-2.5 py-1.5 border hairline text-[11px] flex items-center gap-1 cursor-pointer transition-colors ${filterOpen ? "bg-white/[0.06] text-foreground" : "text-muted-foreground hover:text-foreground"}`}><Filter className="w-3 h-3" /> Filters</button>
       </div>
+      {filterOpen && (
+        <div className="glass p-4 flex flex-wrap gap-4 text-[11px]">
+          <label className="flex flex-col gap-1"><span className="text-[10px] uppercase tracking-wider text-muted-foreground">Min price</span><input placeholder="e.g. 10" className="bg-white/[0.03] border hairline px-2 py-1.5 w-28 font-mono focus:outline-none focus:border-accent/40" /></label>
+          <label className="flex flex-col gap-1"><span className="text-[10px] uppercase tracking-wider text-muted-foreground">Max price</span><input placeholder="e.g. 5000" className="bg-white/[0.03] border hairline px-2 py-1.5 w-28 font-mono focus:outline-none focus:border-accent/40" /></label>
+          <label className="flex flex-col gap-1"><span className="text-[10px] uppercase tracking-wider text-muted-foreground">Min change %</span><input placeholder="e.g. -5" className="bg-white/[0.03] border hairline px-2 py-1.5 w-28 font-mono focus:outline-none focus:border-accent/40" /></label>
+          <label className="flex flex-col gap-1"><span className="text-[10px] uppercase tracking-wider text-muted-foreground">Direction</span>
+            <div className="flex gap-1">
+              {["All", "Up", "Down"].map(d => <button key={d} className="px-2.5 py-1.5 border hairline hover:bg-white/[0.06]">{d}</button>)}
+            </div>
+          </label>
+          <button onClick={() => setFilterOpen(false)} className="self-end px-3 py-1.5 bg-accent/15 border border-accent/30 text-accent hover:bg-accent/25">Apply</button>
+        </div>
+      )}
 
       {/* Heatmap + sectors */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">

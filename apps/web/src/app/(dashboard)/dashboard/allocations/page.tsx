@@ -25,6 +25,22 @@ export default function AllocationsPage() {
     { sym: "Cash", name: "USD / stables", target: 7, current: 8, locked: false },
   ]);
   const [hovered, setHovered] = useState<string | null>(null);
+  const [aiSuggesting, setAiSuggesting] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const aiSuggest = () => {
+    setAiSuggesting(true);
+    setTimeout(() => {
+      const preset = PRESETS[Math.floor(Math.random() * PRESETS.length)];
+      applyPreset(preset.scores);
+      setAiSuggesting(false);
+    }, 1500);
+  };
+
+  const saveRebalance = () => {
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
 
   const total = slices.reduce((s, x) => s + x.target, 0);
   const drift = slices.reduce((s, x) => s + Math.abs(x.target - x.current), 0) / 2;
@@ -73,11 +89,11 @@ export default function AllocationsPage() {
           <button onClick={reset} className="px-3 py-2 hover:bg-white/5 border hairline text-muted-foreground hover:text-foreground flex items-center gap-1.5 cursor-pointer">
             <RotateCcw className="w-3 h-3" /> Reset
           </button>
-          <button className="px-3 py-2 hover:bg-white/5 border hairline text-muted-foreground hover:text-foreground flex items-center gap-1.5 cursor-pointer">
-            <Sparkles className="w-3 h-3" /> AI suggest
+          <button onClick={aiSuggest} disabled={aiSuggesting} className="px-3 py-2 hover:bg-white/5 border hairline text-muted-foreground hover:text-foreground flex items-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed">
+            <Sparkles className={`w-3 h-3 ${aiSuggesting ? "animate-spin" : ""}`} /> {aiSuggesting ? "Thinking…" : "AI suggest"}
           </button>
-          <button className="px-3 py-2 bg-primary/90 hover:bg-primary text-primary-foreground flex items-center gap-1.5 cursor-pointer">
-            <Save className="w-3 h-3" /> Save & rebalance
+          <button onClick={saveRebalance} className={`px-3 py-2 flex items-center gap-1.5 cursor-pointer transition-colors ${saved ? "bg-bull/15 border border-bull/30 text-bull" : "bg-primary/90 hover:bg-primary text-primary-foreground"}`}>
+            <Save className="w-3 h-3" /> {saved ? "Saved!" : "Save & rebalance"}
           </button>
         </div>
       </div>

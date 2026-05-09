@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Bell, BellOff, Plus, Search, X, TrendingUp, TrendingDown, Activity,
   Newspaper, Bot, Trash2, Pencil, Mail, MessageSquare, Smartphone, ChevronDown,
@@ -37,10 +38,12 @@ function typeIcon(t: AlertItem["type"]) {
 }
 
 export default function AlertsPage() {
+  const router = useRouter();
   const [items, setItems] = useState<AlertItem[]>(SEED);
   const [tab, setTab] = useState<typeof TABS[number]>("All");
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
+  const [editItem, setEditItem] = useState<AlertItem | null>(null);
 
   const [draftSym, setDraftSym] = useState("AAPL");
   const [draftType, setDraftType] = useState<AlertItem["type"]>("Price");
@@ -86,7 +89,7 @@ export default function AlertsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 text-[11px]">
-          <button className="px-3 py-2 hover:bg-white/5 border hairline text-muted-foreground hover:text-foreground cursor-pointer">Settings</button>
+          <button onClick={() => router.push("/dashboard/settings")} className="px-3 py-2 hover:bg-white/5 border hairline text-muted-foreground hover:text-foreground cursor-pointer">Settings</button>
           <button onClick={() => setCreating(true)}
             className="px-3 py-2 bg-accent/15 border border-accent/30 text-accent flex items-center gap-1.5 cursor-pointer hover:bg-accent/25 transition-colors">
             <Plus className="w-3 h-3" /> New alert
@@ -179,7 +182,7 @@ export default function AlertsPage() {
                     <span className={`absolute top-0.5 w-4 h-4 bg-foreground transition-all`} style={{ borderRadius: 9999, left: a.active ? "calc(100% - 18px)" : "2px" }} />
                   </button>
                   <div className="hidden md:flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button className="p-1.5 text-muted-foreground hover:text-foreground cursor-pointer"><Pencil className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => setEditItem(a)} className="p-1.5 text-muted-foreground hover:text-foreground cursor-pointer"><Pencil className="w-3.5 h-3.5" /></button>
                     <button onClick={() => remove(a.id)} className="p-1.5 text-muted-foreground hover:text-bear cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
                   </div>
                 </div>
@@ -260,6 +263,33 @@ export default function AlertsPage() {
           </button>
         </aside>
       </div>
+      {editItem && (
+        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setEditItem(null)}>
+          <div onClick={e => e.stopPropagation()} className="glass max-w-sm w-full p-6 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-display text-xl">Edit alert</h3>
+              <button onClick={() => setEditItem(null)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Symbol</label>
+              <input defaultValue={editItem.sym} onChange={e => setEditItem(x => x ? { ...x, sym: e.target.value } : x)}
+                className="bg-white/[0.03] border hairline px-3 py-2 text-sm font-mono focus:outline-none focus:border-accent/40" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] uppercase tracking-wider text-muted-foreground">Condition</label>
+              <input defaultValue={editItem.cond} onChange={e => setEditItem(x => x ? { ...x, cond: e.target.value } : x)}
+                className="bg-white/[0.03] border hairline px-3 py-2 text-sm focus:outline-none focus:border-accent/40" />
+            </div>
+            <div className="flex gap-2 text-[11px]">
+              <button onClick={() => setEditItem(null)} className="flex-1 py-2.5 border hairline hover:bg-white/5">Cancel</button>
+              <button onClick={() => {
+                setItems(arr => arr.map(i => i.id === editItem.id ? { ...i, sym: editItem.sym, cond: editItem.cond } : i));
+                setEditItem(null);
+              }} className="flex-1 py-2.5 bg-primary text-primary-foreground hover:bg-primary/90">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

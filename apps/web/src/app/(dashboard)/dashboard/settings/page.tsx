@@ -85,6 +85,13 @@ export default function SettingsPage() {
   const [defaultChart, setDefaultChart] = useState("Candlestick");
   const [defaultInterval, setDefaultInterval] = useState("1H");
   const [decimals, setDecimals] = useState("2");
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [cacheHistorical, setCacheHistorical] = useState(true);
+  const [showVolume, setShowVolume] = useState(true);
+  const [showExtended, setShowExtended] = useState(false);
+  const [exportRequested, setExportRequested] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const requestExport = () => { setExportRequested(true); setTimeout(() => setExportRequested(false), 2000); };
 
   // Privacy
   const [analytics, setAnalytics] = useState(true);
@@ -174,10 +181,10 @@ export default function SettingsPage() {
               <div className="border-t hairline mt-4 pt-4">
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3">Data & sync</div>
                 <Row label="Auto-refresh market data" sub="Refresh every 5 seconds while active">
-                  <Toggle checked={true} onChange={() => {}} />
+                  <Toggle checked={autoRefresh} onChange={setAutoRefresh} />
                 </Row>
                 <Row label="Cache historical data locally" sub="Faster chart loads after first visit">
-                  <Toggle checked={true} onChange={() => {}} />
+                  <Toggle checked={cacheHistorical} onChange={setCacheHistorical} />
                 </Row>
               </div>
             </>
@@ -259,10 +266,10 @@ export default function SettingsPage() {
                   <Select value={decimals} options={["0", "1", "2", "3", "4", "5"]} onChange={setDecimals} />
                 </Row>
                 <Row label="Show volume bars" sub="Display volume histogram on charts">
-                  <Toggle checked={true} onChange={() => {}} />
+                  <Toggle checked={showVolume} onChange={setShowVolume} />
                 </Row>
                 <Row label="Show extended hours" sub="Pre/post-market data on US equities">
-                  <Toggle checked={false} onChange={() => {}} />
+                  <Toggle checked={showExtended} onChange={setShowExtended} />
                 </Row>
               </div>
             </>
@@ -294,12 +301,12 @@ export default function SettingsPage() {
               <div className="border-t hairline mt-4 pt-4">
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3">Your data</div>
                 <Row label="Download my data" sub="Export a full copy of your Trevise data (GDPR Art. 20)">
-                  <button className="text-[11px] px-3 py-1.5 border hairline hover:bg-white/5 flex items-center gap-1.5">
-                    <RefreshCw className="w-3 h-3" /> Request export
+                  <button onClick={requestExport} className={`text-[11px] px-3 py-1.5 border flex items-center gap-1.5 transition-colors ${exportRequested ? "border-bull/30 text-bull bg-bull/10" : "hairline hover:bg-white/5"}`}>
+                    <RefreshCw className="w-3 h-3" /> {exportRequested ? "Request sent!" : "Request export"}
                   </button>
                 </Row>
                 <Row label="Delete all data" sub="Permanently erase your account and data">
-                  <button className="text-[11px] px-3 py-1.5 border border-bear/30 text-bear hover:bg-bear/10">
+                  <button onClick={() => setShowDeleteConfirm(true)} className="text-[11px] px-3 py-1.5 border border-bear/30 text-bear hover:bg-bear/10">
                     Delete account
                   </button>
                 </Row>
@@ -372,6 +379,18 @@ export default function SettingsPage() {
           )}
         </div>
       </div>
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-background/80 backdrop-blur-sm" onClick={() => setShowDeleteConfirm(false)}>
+          <div className="glass max-w-sm w-full p-6 flex flex-col gap-4" onClick={e => e.stopPropagation()}>
+            <h3 className="font-display text-xl text-bear">Delete account?</h3>
+            <p className="text-xs text-muted-foreground">All your data will be permanently erased. This cannot be undone. You will lose all strategies, alerts, journal entries, and history.</p>
+            <div className="flex gap-2 text-[11px]">
+              <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 py-2.5 border hairline hover:bg-white/5">Cancel</button>
+              <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 py-2.5 border border-bear/30 text-bear hover:bg-bear/10">Delete everything</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

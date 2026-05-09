@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Search, BookOpen, Video, MessageSquare, Mail, LifeBuoy,
   ChevronDown, ChevronRight, ExternalLink, Zap, Bot, BarChart2,
@@ -65,10 +66,27 @@ const GUIDES = [
   { title: "Billing & subscription guide", time: "2 min", Icon: CreditCard },
 ];
 
+const RESOURCE_ROUTES: Record<string, string> = {
+  "API reference": "/dashboard/settings",
+  "Changelog": "/dashboard/overview",
+  "Strategy library": "/dashboard/strategies",
+  "Risk management guide": "/dashboard/journal",
+  "Privacy policy": "/dashboard/settings",
+};
+
 export default function HelpPage() {
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("All");
   const [open, setOpen] = useState<string | null>(null);
+  const [chatStarted, setChatStarted] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
+  const [openedGuide, setOpenedGuide] = useState<string | null>(null);
+
+  const openGuide = (title: string) => {
+    setOpenedGuide(title);
+    setTimeout(() => setOpenedGuide(null), 1500);
+  };
 
   const filtered = FAQS.filter((f) =>
     (catFilter === "All" || f.cat === catFilter) &&
@@ -138,12 +156,22 @@ export default function HelpPage() {
               <div className="font-display text-lg">{title}</div>
               <div className="text-[11px] text-muted-foreground mt-0.5">{sub}</div>
             </div>
-            <button className={`mt-auto text-[11px] py-2.5 flex items-center justify-center gap-1.5 ${
-              primary
-                ? "bg-accent/15 border border-accent/30 text-accent hover:bg-accent/25"
-                : "border hairline hover:bg-white/5 text-muted-foreground hover:text-foreground"
-            }`}>
-              {action} <ArrowUpRight className="w-3 h-3" />
+            <button
+              onClick={() => {
+                if (action === "Start chat") setChatStarted(true);
+                else if (action === "Send email") setEmailSent(true);
+                else if (action === "Join Discord") window.open("https://discord.gg", "_blank");
+              }}
+              className={`mt-auto text-[11px] py-2.5 flex items-center justify-center gap-1.5 transition-colors ${
+                action === "Start chat" && chatStarted ? "bg-bull/15 border border-bull/30 text-bull" :
+                action === "Send email" && emailSent ? "bg-bull/15 border border-bull/30 text-bull" :
+                primary ? "bg-accent/15 border border-accent/30 text-accent hover:bg-accent/25" :
+                "border hairline hover:bg-white/5 text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {action === "Start chat" && chatStarted ? "Chat started!" :
+               action === "Send email" && emailSent ? "Email opened!" :
+               <>{action} <ArrowUpRight className="w-3 h-3" /></>}
             </button>
           </div>
         ))}
@@ -155,24 +183,27 @@ export default function HelpPage() {
           <h2 className="font-display text-xl flex items-center gap-2">
             <Video className="w-4 h-4 text-accent" /> Quick guides
           </h2>
-          <button className="text-[11px] text-accent hover:underline flex items-center gap-1">
+          <button onClick={() => router.push("/dashboard/overview")} className="text-[11px] text-accent hover:underline flex items-center gap-1">
             View all <ChevronRight className="w-3 h-3" />
           </button>
         </div>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {GUIDES.map(({ title, time, Icon }) => (
             <button key={title}
-              className="flex items-center gap-3 p-3 border hairline hover:bg-white/[0.04] text-left group transition-colors">
+              onClick={() => openGuide(title)}
+              className={`flex items-center gap-3 p-3 border text-left group transition-colors ${
+                openedGuide === title ? "border-accent/30 bg-accent/5" : "hairline hover:bg-white/[0.04]"
+              }`}>
               <div className="w-9 h-9 grid place-items-center bg-white/[0.04] border hairline shrink-0">
-                <Icon className="w-4 h-4 text-muted-foreground group-hover:text-accent transition-colors" strokeWidth={1.4} />
+                <Icon className={`w-4 h-4 transition-colors ${openedGuide === title ? "text-accent" : "text-muted-foreground group-hover:text-accent"}`} strokeWidth={1.4} />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-[12px] truncate">{title}</div>
+                <div className="text-[12px] truncate">{openedGuide === title ? "Opening…" : title}</div>
                 <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
                   <Clock className="w-2.5 h-2.5" /> {time} read
                 </div>
               </div>
-              <ExternalLink className="w-3 h-3 text-muted-foreground/40 group-hover:text-muted-foreground shrink-0 transition-colors" />
+              <ExternalLink className={`w-3 h-3 shrink-0 transition-colors ${openedGuide === title ? "text-accent" : "text-muted-foreground/40 group-hover:text-muted-foreground"}`} />
             </button>
           ))}
         </div>
@@ -259,7 +290,7 @@ export default function HelpPage() {
             { label: "Risk management guide",   sub: "Position sizing & drawdowns" },
             { label: "Privacy policy",          sub: "How we handle your data" },
           ].map(({ label, sub }) => (
-            <button key={label} className="flex items-center justify-between text-[12px] group">
+            <button key={label} onClick={() => router.push(RESOURCE_ROUTES[label])} className="flex items-center justify-between text-[12px] group">
               <div>
                 <div className="group-hover:text-accent transition-colors">{label}</div>
                 <div className="text-[10px] text-muted-foreground">{sub}</div>

@@ -1,7 +1,7 @@
 "use client";
-import { Bell, ChevronDown, Menu, MoonStar, Sun, Activity, Wifi, User, Settings, LogOut, CreditCard, LifeBuoy } from "lucide-react";
+import { Bell, ChevronDown, Menu, MoonStar, Sun, Activity, Wifi, User, Settings, LogOut, CreditCard, LifeBuoy, X, TrendingUp, Bot, AlertCircle } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -45,11 +45,30 @@ function useClock() {
   return t;
 }
 
+const NOTIFS = [
+  { id: 1, icon: TrendingUp, color: "text-bull", title: "AAPL crossed $65,000", sub: "Price alert triggered", time: "2m ago", read: false },
+  { id: 2, icon: Bot,        color: "text-accent", title: "AI signal: NVDA Long 92%", sub: "Momentum model · entry $1,124", time: "14m ago", read: false },
+  { id: 3, icon: AlertCircle, color: "text-bear", title: "TSLA stop hit at $190", sub: "Position closed −$320", time: "1h ago", read: true },
+];
+
 export function Topbar({ onMenu, breadcrumb }: { onMenu: () => void; breadcrumb?: { label: string; to?: string }[] }) {
   const crumbs = breadcrumb ?? [{ label: "Workspace" }, { label: "Overview" }];
   const { theme, toggle } = useTheme();
   const utc = useClock();
   const router = useRouter();
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifs, setNotifs] = useState(NOTIFS);
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const unread = notifs.filter(n => !n.read).length;
 
   return (
     <header className="sticky top-0 z-20 bg-background border-b hairline">
@@ -92,10 +111,42 @@ export function Topbar({ onMenu, breadcrumb }: { onMenu: () => void; breadcrumb?
           >
             {theme === "dark" ? <Sun className="w-3.5 h-3.5" /> : <MoonStar className="w-3.5 h-3.5" />}
           </button>
-          <button className="relative p-1.5 hover:bg-white/5 border hairline text-muted-foreground hover:text-foreground">
-            <Bell className="w-3.5 h-3.5" />
-            <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-accent rounded-full" />
-          </button>
+          <div className="relative" ref={notifRef}>
+            <button
+              onClick={() => { setNotifOpen(o => !o); setNotifs(n => n.map(x => ({ ...x, read: true }))); }}
+              className="relative p-1.5 hover:bg-white/5 border hairline text-muted-foreground hover:text-foreground"
+            >
+              <Bell className="w-3.5 h-3.5" />
+              {unread > 0 && <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-accent rounded-full" />}
+            </button>
+            {notifOpen && (
+              <div className="absolute right-0 top-full mt-2 w-80 glass z-50 flex flex-col shadow-xl">
+                <div className="flex items-center justify-between px-4 py-3 border-b hairline">
+                  <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Notifications</span>
+                  <button onClick={() => setNotifOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="w-3.5 h-3.5" /></button>
+                </div>
+                <div className="flex flex-col">
+                  {notifs.map(n => {
+                    const Icon = n.icon;
+                    return (
+                      <div key={n.id} className="flex items-start gap-3 px-4 py-3 border-b hairline last:border-0 hover:bg-white/[0.03] transition-colors">
+                        <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${n.color}`} strokeWidth={1.5} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[12px] font-medium leading-tight">{n.title}</div>
+                          <div className="text-[11px] text-muted-foreground mt-0.5">{n.sub}</div>
+                          <div className="text-[10px] text-muted-foreground/60 mt-1">{n.time}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <button onClick={() => { router.push("/dashboard/alerts"); setNotifOpen(false); }}
+                  className="px-4 py-3 text-[11px] text-accent hover:text-foreground text-center border-t hairline hover:bg-white/[0.03] transition-colors">
+                  View all alerts →
+                </button>
+              </div>
+            )}
+          </div>
           <div className="w-px h-5 bg-white/10 mx-0.5 hidden md:block" />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

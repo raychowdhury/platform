@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Bar, BarChart, ResponsiveContainer, Cell } from "recharts";
 import {
   Plus, Search, Smile, Frown, Meh, TrendingUp, TrendingDown, X, Pencil,
@@ -42,12 +43,16 @@ function moodColor(m: Mood) {
 }
 
 export default function JournalPage() {
+  const router = useRouter();
   const [entries, setEntries] = useState<Entry[]>(SEED);
   const [selected, setSelected] = useState<Entry | null>(SEED[0]);
   const [search, setSearch] = useState("");
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [filter, setFilter] = useState<"All" | "Wins" | "Losses">("All");
   const [creating, setCreating] = useState(false);
+  const [editingEntry, setEditingEntry] = useState(false);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [calMonth, setCalMonth] = useState("May 2026");
 
   // Draft for new entry
   const [draft, setDraft] = useState<Partial<Entry>>({
@@ -108,9 +113,29 @@ export default function JournalPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 text-[11px]">
-          <button className="px-3 py-2 hover:bg-white/5 border hairline text-muted-foreground hover:text-foreground cursor-pointer flex items-center gap-1.5">
-            <Calendar className="w-3 h-3" /> May 2026
-          </button>
+          <div className="relative">
+            <button onClick={() => setShowCalendar(o => !o)} className={`px-3 py-2 border hairline cursor-pointer flex items-center gap-1.5 transition-colors ${showCalendar ? "bg-white/[0.06] text-foreground" : "hover:bg-white/5 text-muted-foreground hover:text-foreground"}`}>
+              <Calendar className="w-3 h-3" /> {calMonth}
+            </button>
+            {showCalendar && (
+              <div className="absolute right-0 top-full mt-1 glass z-20 p-4 flex flex-col gap-3 min-w-[200px]">
+                <div className="flex items-center justify-between text-[11px]">
+                  <button onClick={() => setCalMonth("Apr 2026")} className="text-muted-foreground hover:text-foreground px-1">‹</button>
+                  <span>{calMonth}</span>
+                  <button onClick={() => setCalMonth("Jun 2026")} className="text-muted-foreground hover:text-foreground px-1">›</button>
+                </div>
+                <div className="grid grid-cols-7 gap-1 text-[10px] text-center text-muted-foreground">
+                  {["M","T","W","T","F","S","S"].map((d,i) => <span key={i}>{d}</span>)}
+                </div>
+                <div className="grid grid-cols-7 gap-1 text-[11px] text-center">
+                  {Array.from({length: 31}, (_, i) => (
+                    <button key={i} onClick={() => setShowCalendar(false)} className={`py-0.5 rounded hover:bg-white/[0.08] ${i === 7 ? "bg-accent/15 text-accent" : "text-muted-foreground"}`}>{i + 1}</button>
+                  ))}
+                </div>
+                <button onClick={() => setShowCalendar(false)} className="text-[10px] text-accent hover:text-foreground text-center">Close</button>
+              </div>
+            )}
+          </div>
           <button onClick={() => setCreating(true)}
             className="px-3 py-2 bg-accent/15 border border-accent/30 text-accent flex items-center gap-1.5 cursor-pointer hover:bg-accent/25 transition-colors">
             <Plus className="w-3 h-3" /> New entry
@@ -323,7 +348,7 @@ export default function JournalPage() {
                     <span className={`text-base ${selected.side === "Long" ? "text-bull" : "text-bear"}`}>{selected.side}</span>
                   </h3>
                 </div>
-                <button className="text-muted-foreground hover:text-foreground cursor-pointer p-2 border hairline"><Pencil className="w-3.5 h-3.5" /></button>
+                <button onClick={() => { setCreating(true); if (selected) { setDraft({ sym: selected.sym, side: selected.side, pnl: selected.pnl, pnlPct: selected.pnlPct, rr: selected.rr, mood: selected.mood, tags: selected.tags, thesis: selected.thesis, outcome: selected.outcome }); } }} className="text-muted-foreground hover:text-foreground cursor-pointer p-2 border hairline" title="Edit entry"><Pencil className="w-3.5 h-3.5" /></button>
               </div>
 
               <div className="grid grid-cols-3 gap-2 text-center">
@@ -365,7 +390,7 @@ export default function JournalPage() {
                 <p className="text-sm leading-relaxed text-muted-foreground">{selected.outcome}</p>
               </div>
 
-              <button className="mt-auto text-[11px] text-accent hover:text-foreground cursor-pointer flex items-center gap-1">
+              <button onClick={() => router.push("/dashboard/charts")} className="mt-auto text-[11px] text-accent hover:text-foreground cursor-pointer flex items-center gap-1">
                 Open chart at entry <ChevronRight className="w-3 h-3" />
               </button>
             </>
