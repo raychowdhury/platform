@@ -18,6 +18,9 @@ const PAGE_LABELS: Record<string, string> = {
   "/dashboard/community":   "Community",
   "/dashboard/academy":     "Academy",
   "/dashboard/billing":     "Billing",
+  "/dashboard/profile":    "Profile",
+  "/dashboard/settings":   "Settings",
+  "/dashboard/help":       "Help & Support",
 };
 
 export default function DashboardGroupLayout({ children }: { children: React.ReactNode }) {

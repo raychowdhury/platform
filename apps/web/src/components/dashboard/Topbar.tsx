@@ -3,6 +3,7 @@ import { Bell, ChevronDown, Menu, MoonStar, Sun, Activity, Wifi, User, Settings,
 import { useTheme } from "@/hooks/use-theme";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,6 +49,7 @@ export function Topbar({ onMenu, breadcrumb }: { onMenu: () => void; breadcrumb?
   const crumbs = breadcrumb ?? [{ label: "Workspace" }, { label: "Overview" }];
   const { theme, toggle } = useTheme();
   const utc = useClock();
+  const router = useRouter();
 
   return (
     <header className="sticky top-0 z-20 bg-background border-b hairline">
@@ -112,20 +114,23 @@ export function Topbar({ onMenu, breadcrumb }: { onMenu: () => void; breadcrumb?
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
-                <Link href="/dashboard/portfolio"><User className="w-3.5 h-3.5 mr-2" />Profile</Link>
+                <Link href="/dashboard/profile"><User className="w-3.5 h-3.5 mr-2" />Profile</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href="/dashboard/billing"><CreditCard className="w-3.5 h-3.5 mr-2" />Billing</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href="/dashboard/overview"><Settings className="w-3.5 h-3.5 mr-2" />Settings</Link>
+                <Link href="/dashboard/settings"><Settings className="w-3.5 h-3.5 mr-2" />Settings</Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
-                <Link href="/dashboard/academy"><LifeBuoy className="w-3.5 h-3.5 mr-2" />Help & Support</Link>
+                <Link href="/dashboard/help"><LifeBuoy className="w-3.5 h-3.5 mr-2" />Help & Support</Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-bear focus:text-bear">
+              <DropdownMenuItem
+                className="text-bear focus:text-bear cursor-pointer"
+                onClick={() => router.push("/login")}
+              >
                 <LogOut className="w-3.5 h-3.5 mr-2" />Log out
               </DropdownMenuItem>
             </DropdownMenuContent>
