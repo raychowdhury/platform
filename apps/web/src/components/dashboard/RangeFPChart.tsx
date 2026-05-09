@@ -1,11 +1,10 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { rand } from "@/lib/chart-data";
 import { useCanvasPanZoom } from "./useCanvasPanZoom";
 
 // Range Footprint Delta Volume
 // Each bar = fixed tick range. Cells show: delta | volume
-// Green = buy delta, Red = sell delta
 
 const TICK = 0.25;
 const BAR_RANGE_TICKS = 8; // 2-point range bars
@@ -13,7 +12,7 @@ const rt = (v: number) => Math.round(v / TICK) * TICK;
 
 interface RFLevel {
   price: number;
-  delta: number;   // signed: positive=buy, negative=sell
+  delta: number;
   volume: number;
   poc: boolean;
   imbal: "buy" | "sell" | "none";
@@ -21,10 +20,10 @@ interface RFLevel {
 
 interface RFBar {
   o: number; h: number; l: number; c: number;
-  ts: number;         // bar index
+  ts: number;
   timeLabel: string;
   levels: RFLevel[];
-  delta: number;      // bar total delta
+  delta: number;
   volume: number;
 }
 
@@ -47,7 +46,6 @@ function genRFBars(n = 16, base = 5564, seed = 1): RFBar[] {
 
     for (let li = 0; li < nL; li++) {
       const lp = rt(l + li * TICK);
-      // Higher vol near open/close
       const distO = Math.abs(lp - o) / (rangePts || 1);
       const distC = Math.abs(lp - c) / (rangePts || 1);
       const m = 1 + (1 - Math.min(distO, distC)) * 5;
@@ -93,6 +91,7 @@ function genVolProfile(bars: RFBar[], pMin: number, pMax: number): VolBar[] {
 export default function RangeFPChart({ seed = 1, basePrice = 5564 }: { seed?: number; basePrice?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { containerRef, size, winStart, winEnd, isGrabbing } = useCanvasPanZoom(60, 16);
+  const [showGrid, setShowGrid] = useState(true);
 
   const bars = useMemo(() => genRFBars(60, basePrice, seed), [seed, basePrice]);
 
@@ -103,6 +102,7 @@ export default function RangeFPChart({ seed = 1, basePrice = 5564 }: { seed?: nu
     if (!ctx) return;
 
     const visibleBars = bars.slice(winStart, winEnd + 1);
+    if (visibleBars.length === 0) return;
     const lastBar = visibleBars[visibleBars.length - 1];
     const visiblePMin = Math.min(...visibleBars.map(b => b.l));
     const visiblePMax = Math.max(...visibleBars.map(b => b.h));
@@ -116,62 +116,109 @@ export default function RangeFPChart({ seed = 1, basePrice = 5564 }: { seed?: nu
     canvas.style.height = `${h}px`;
     ctx.scale(dpr, dpr);
 
-    const PROF_W  = 55;
-    const PAXIS_W = 52;
-    const DELTA_H = 90;  // bottom delta bars
-    const TIME_H  = 18;
+    // Layout — generous axis widths so labels never overlap bars
+    const PAXIS_W = 62;   // left price axis
+    const PROF_W  = 60;   // right volume profile
+    const DELTA_H = 90;   // bottom delta bars
+    const TIME_H  = 20;   // time labels
+    const PAD_TOP = 14;   // breathing room above top row
+    const PAD_BOT = 10;   // breathing room below bottom row
 
-    const chartW = w - PROF_W - PAXIS_W;
-    const chartH = h - DELTA_H - TIME_H;
-    const nTicks = Math.round((visiblePMax - visiblePMin) / TICK) + 1;
-    const ROW_H  = Math.max(12, Math.floor(chartH / nTicks));
-    const COL_W  = chartW / visibleBars.length;
+    const chartW  = w - PAXIS_W - PROF_W;
+    const chartH  = h - DELTA_H - TIME_H;
+    // usable vertical space for the rows (inside padding)
+    const usableH = chartH - PAD_TOP - PAD_BOT;
 
-    const pToPy = (p: number) => (nTicks - 1 - Math.round((p - visiblePMin) / TICK)) * ROW_H;
+    const nTicks  = Math.round((visiblePMax - visiblePMin) / TICK) + 1;
+    // cap ROW_H so it never blows the chart — min 6px to stay readable
+    const ROW_H   = Math.max(6, Math.min(40, Math.floor(usableH / nTicks)));
+    const COL_W   = chartW / visibleBars.length;
 
-    // ── BG
+    // Adaptive label spacing so axis labels never overlap each other
+    // Each label is ~12px tall — skip levels when rows are thin
+    const labelEvery = ROW_H < 8 ? 8 : ROW_H < 11 ? 4 : ROW_H < 15 ? 2 : 1;
+
+    // Y mapped with top padding
+    const pToPy = (p: number) =>
+      PAD_TOP + (nTicks - 1 - Math.round((p - visiblePMin) / TICK)) * ROW_H;
+
+    // ── Background
     ctx.fillStyle = "#0e0e0e";
     ctx.fillRect(0, 0, w, h);
 
-    // ── Left price axis
+    // ── Left price axis panel
     ctx.fillStyle = "#0a0a0a";
-    ctx.fillRect(0, 0, PAXIS_W, h);
+    ctx.fillRect(0, 0, PAXIS_W, chartH);
     ctx.strokeStyle = "rgba(255,255,255,0.07)";
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(PAXIS_W, 0); ctx.lineTo(PAXIS_W, chartH); ctx.stroke();
 
-    for (let ti = 0; ti < nTicks; ti += 2) {
+    // Price labels & optional grid
+    for (let ti = 0; ti < nTicks; ti++) {
       const lp = rt(visiblePMin + ti * TICK);
-      const y  = pToPy(lp) + ROW_H / 2;
-      ctx.fillStyle = "#555";
-      ctx.font = "9px 'JetBrains Mono', monospace";
-      ctx.textAlign = "right";
-      ctx.fillText(lp.toFixed(2), PAXIS_W - 3, y + 3);
-      ctx.strokeStyle = "rgba(255,255,255,0.025)";
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(PAXIS_W, pToPy(lp)); ctx.lineTo(PAXIS_W + chartW, pToPy(lp)); ctx.stroke();
+      const rowY = pToPy(lp);
+      // clip label to safe zone
+      if (rowY < 4 || rowY + ROW_H > chartH + 4) continue;
+      const midY = rowY + ROW_H / 2;
+
+      // horizontal grid line across chart body
+      if (showGrid) {
+        ctx.strokeStyle = "rgba(255,255,255,0.028)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(PAXIS_W, rowY);
+        ctx.lineTo(PAXIS_W + chartW, rowY);
+        ctx.stroke();
+      }
+
+      // axis label — only every N ticks so they don't collide
+      if (ti % labelEvery === 0) {
+        ctx.fillStyle = "#555";
+        ctx.font = "9px 'JetBrains Mono', monospace";
+        ctx.textAlign = "right";
+        // 4px gap between label right-edge and axis line
+        ctx.fillText(lp.toFixed(2), PAXIS_W - 5, midY + 3.5);
+
+        // tick mark on the axis border
+        ctx.strokeStyle = "rgba(255,255,255,0.10)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(PAXIS_W - 3, midY);
+        ctx.lineTo(PAXIS_W, midY);
+        ctx.stroke();
+      }
     }
 
-    // ── Bars
+    // ── Bars (clipped to chart body so overflow never bleeds into axis / delta)
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(PAXIS_W, 0, chartW, chartH);
+    ctx.clip();
+
     visibleBars.forEach((bar, bi) => {
       const colX = PAXIS_W + bi * COL_W;
 
       // column separator
       ctx.strokeStyle = "rgba(255,255,255,0.06)";
       ctx.lineWidth = 1;
+      ctx.setLineDash([]);
       ctx.beginPath(); ctx.moveTo(colX, 0); ctx.lineTo(colX, chartH); ctx.stroke();
 
-      // alternating bg
-      if (bi % 2 === 0) { ctx.fillStyle = "rgba(255,255,255,0.012)"; ctx.fillRect(colX, 0, COL_W, chartH); }
+      // alternating column tint
+      if (bi % 2 === 0) {
+        ctx.fillStyle = "rgba(255,255,255,0.010)";
+        ctx.fillRect(colX, 0, COL_W, chartH);
+      }
 
-      // ── Levels
+      // ── Price levels
       bar.levels.forEach(lv => {
         const rowY = pToPy(lv.price);
         const rh   = Math.max(1, ROW_H - 1);
 
         // cell background
         if (lv.poc) {
-          // POC: bright neutral highlight
           ctx.fillStyle = lv.delta >= 0 ? "rgba(0,180,80,0.35)" : "rgba(220,30,30,0.35)";
         } else if (lv.imbal === "buy") {
           ctx.fillStyle = "rgba(0,200,80,0.25)";
@@ -188,17 +235,17 @@ export default function RangeFPChart({ seed = 1, basePrice = 5564 }: { seed?: nu
         if (lv.imbal !== "none") {
           ctx.strokeStyle = lv.imbal === "buy" ? "rgba(0,220,100,0.7)" : "rgba(255,40,40,0.7)";
           ctx.lineWidth = 1;
+          ctx.setLineDash([]);
           ctx.strokeRect(colX + 1.5, rowY + 0.5, COL_W - 3, rh - 1);
         }
 
-        // delta | volume numbers
-        if (ROW_H >= 11) {
+        // delta | volume numbers — only when rows are tall enough
+        if (ROW_H >= 10) {
           const fs  = Math.min(10, Math.max(7, ROW_H - 3));
           const mid = colX + COL_W / 2;
           const ty  = rowY + ROW_H * 0.70;
           ctx.font = `${fs}px 'JetBrains Mono', monospace`;
 
-          // delta (left) — green/red based on sign
           if (lv.delta !== 0) {
             ctx.fillStyle = lv.delta > 0
               ? (lv.imbal === "buy" ? "#66ff99" : "#33cc66")
@@ -207,58 +254,61 @@ export default function RangeFPChart({ seed = 1, basePrice = 5564 }: { seed?: nu
             ctx.fillText(lv.delta.toString(), mid - 3, ty);
           }
 
-          // volume (right) — always white/gray
           ctx.fillStyle = lv.poc ? "#ffffff" : "#888888";
           ctx.textAlign = "left";
           ctx.fillText(lv.volume.toString(), mid + 3, ty);
         }
       });
 
-      // ── Candle center outline
+      // ── Candle direction indicator (center outline)
       const isUp = bar.c >= bar.o;
       const cx   = colX + COL_W / 2;
       const oY   = pToPy(bar.o) + ROW_H / 2;
       const cY   = pToPy(bar.c) + ROW_H / 2;
-      ctx.strokeStyle = isUp ? "rgba(0,200,80,0.5)" : "rgba(220,40,40,0.5)";
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(cx - 3, Math.min(oY, cY), 6, Math.max(2, Math.abs(cY - oY)));
+      ctx.fillStyle = isUp ? "#26a69a" : "#ef5350";
+      ctx.fillRect(cx - 3, Math.min(oY, cY), 6, Math.max(2, Math.abs(cY - oY)));
     });
+
+    ctx.restore(); // end chart clip
 
     // ── Current price dashed line
     const cpY = pToPy(lastBar.c) + ROW_H / 2;
-    ctx.strokeStyle = "rgba(255,220,0,0.5)";
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 5]);
-    ctx.beginPath(); ctx.moveTo(PAXIS_W, cpY); ctx.lineTo(PAXIS_W + chartW, cpY); ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = "#cc9900";
-    ctx.fillRect(1, cpY - 7, PAXIS_W - 2, 14);
-    ctx.fillStyle = "#000";
-    ctx.font = "bold 8px 'JetBrains Mono', monospace";
-    ctx.textAlign = "center";
-    ctx.fillText(lastBar.c.toFixed(2), PAXIS_W / 2, cpY + 3.5);
+    if (cpY >= 0 && cpY <= chartH) {
+      ctx.strokeStyle = "rgba(255,220,0,0.5)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 5]);
+      ctx.beginPath(); ctx.moveTo(PAXIS_W, cpY); ctx.lineTo(PAXIS_W + chartW, cpY); ctx.stroke();
+      ctx.setLineDash([]);
+      // badge on the left axis
+      ctx.fillStyle = "#cc9900";
+      ctx.fillRect(2, cpY - 8, PAXIS_W - 4, 16);
+      ctx.fillStyle = "#000";
+      ctx.font = "bold 8px 'JetBrains Mono', monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(lastBar.c.toFixed(2), PAXIS_W / 2, cpY + 3.5);
+    }
 
-    // ── Volume profile (right)
+    // ── Volume profile (right side)
     const profX = PAXIS_W + chartW;
     ctx.fillStyle = "#0a0a0a";
     ctx.fillRect(profX, 0, PROF_W, chartH);
     ctx.strokeStyle = "rgba(255,255,255,0.06)";
     ctx.lineWidth = 1;
+    ctx.setLineDash([]);
     ctx.beginPath(); ctx.moveTo(profX, 0); ctx.lineTo(profX, chartH); ctx.stroke();
 
-    const maxPV = Math.max(...visibleVolProf.map(b => b.buyVol + b.sellVol));
-    const tickH = Math.max(1, chartH / visibleVolProf.length);
+    const maxPV = Math.max(...visibleVolProf.map(b => b.buyVol + b.sellVol), 1);
+    const tickH = Math.max(1, ROW_H - 1);
     visibleVolProf.forEach(bar => {
-      const y    = pToPy(bar.price);
+      const y     = pToPy(bar.price);
+      if (y < 0 || y > chartH) return;
       const total = bar.buyVol + bar.sellVol;
-      const bw   = (total / (maxPV || 1)) * (PROF_W - 4);
-      const buyW = (bar.buyVol / (total || 1)) * bw;
-      // buy portion (green)
+      const bw    = (total / maxPV) * (PROF_W - 6);
+      const buyW  = (bar.buyVol / (total || 1)) * bw;
       ctx.fillStyle = "rgba(0,160,70,0.6)";
-      ctx.fillRect(profX + 2, y + 1, buyW, tickH - 1);
-      // sell portion (red)
+      ctx.fillRect(profX + 3, y + 1, buyW, tickH - 2);
       ctx.fillStyle = "rgba(200,30,30,0.6)";
-      ctx.fillRect(profX + 2 + buyW, y + 1, bw - buyW, tickH - 1);
+      ctx.fillRect(profX + 3 + buyW, y + 1, bw - buyW, tickH - 2);
     });
 
     // ── Bottom delta bars
@@ -267,28 +317,25 @@ export default function RangeFPChart({ seed = 1, basePrice = 5564 }: { seed?: nu
     ctx.fillRect(PAXIS_W, deltaY, chartW, DELTA_H);
     ctx.strokeStyle = "rgba(255,255,255,0.05)";
     ctx.lineWidth = 1;
+    ctx.setLineDash([]);
     ctx.beginPath(); ctx.moveTo(PAXIS_W, deltaY); ctx.lineTo(PAXIS_W + chartW, deltaY); ctx.stroke();
 
-    const maxDelta = Math.max(...visibleBars.map(b => Math.abs(b.delta)));
+    const maxDelta = Math.max(...visibleBars.map(b => Math.abs(b.delta)), 1);
     const midY = deltaY + DELTA_H / 2;
 
-    // zero line
     ctx.strokeStyle = "rgba(255,255,255,0.12)";
+    ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(PAXIS_W, midY); ctx.lineTo(PAXIS_W + chartW, midY); ctx.stroke();
 
     visibleBars.forEach((bar, bi) => {
       const colX = PAXIS_W + bi * COL_W;
-      const bh   = Math.abs(bar.delta) / (maxDelta || 1) * (DELTA_H / 2 - 4);
+      const bh   = Math.abs(bar.delta) / maxDelta * (DELTA_H / 2 - 4);
       const pos  = bar.delta >= 0;
 
       ctx.fillStyle = pos ? "rgba(0,180,70,0.9)" : "rgba(200,30,30,0.9)";
-      if (pos) {
-        ctx.fillRect(colX + 2, midY - bh, COL_W - 4, bh);
-      } else {
-        ctx.fillRect(colX + 2, midY, COL_W - 4, bh);
-      }
+      if (pos) ctx.fillRect(colX + 2, midY - bh, COL_W - 4, bh);
+      else     ctx.fillRect(colX + 2, midY,       COL_W - 4, bh);
 
-      // delta number
       ctx.fillStyle = pos ? "#44ff88" : "#ff5555";
       ctx.font = "bold 8px 'JetBrains Mono', monospace";
       ctx.textAlign = "center";
@@ -303,23 +350,17 @@ export default function RangeFPChart({ seed = 1, basePrice = 5564 }: { seed?: nu
       ctx.fillStyle = "#444";
       ctx.font = "8px 'JetBrains Mono', monospace";
       ctx.textAlign = "center";
-      ctx.fillText(bar.timeLabel, tx, h - 3);
+      ctx.fillText(bar.timeLabel, tx, h - 4);
     });
-
-    // ── "Daily Vol & Delta" label
-    ctx.fillStyle = "rgba(255,255,255,0.25)";
-    ctx.font = "8px sans-serif";
-    ctx.textAlign = "right";
-    ctx.fillText("Daily Vol & Delta", w - 2, 10);
 
     // ── Legend
     ctx.textAlign = "left";
     ctx.font = "8px 'JetBrains Mono', monospace";
     const legends = [
-      { color: "#33cc66", txt: "Buy Δ" },
-      { color: "#cc3333", txt: "Sell Δ" },
-      { color: "#ffffff", txt: "Volume" },
-      { color: "rgba(0,200,80,0.35)", txt: "POC" },
+      { color: "#33cc66",            txt: "Buy Δ"  },
+      { color: "#cc3333",            txt: "Sell Δ" },
+      { color: "#ffffff",            txt: "Volume" },
+      { color: "rgba(0,200,80,0.4)", txt: "POC"   },
     ];
     legends.forEach((l, i) => {
       ctx.fillStyle = l.color;
@@ -328,13 +369,35 @@ export default function RangeFPChart({ seed = 1, basePrice = 5564 }: { seed?: nu
       ctx.fillText(l.txt, PAXIS_W + 14 + i * 65, 10);
     });
 
-  }, [bars, size, winStart, winEnd]);
+    // ── "Daily Vol & Delta" header
+    ctx.fillStyle = "rgba(255,255,255,0.25)";
+    ctx.font = "8px sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillText("Daily Vol & Delta", w - 2, 10);
+
+  }, [bars, size, winStart, winEnd, showGrid]);
 
   useEffect(() => { draw(); }, [draw]);
 
   return (
-    <div ref={containerRef} className="relative w-full h-full overflow-hidden bg-[#0e0e0e]" style={{ cursor: isGrabbing ? "grabbing" : "grab" }}>
+    <div
+      ref={containerRef}
+      className="relative w-full h-full overflow-hidden bg-[#0e0e0e]"
+      style={{ cursor: isGrabbing ? "grabbing" : "grab" }}
+    >
       <canvas ref={canvasRef} className="block" />
+      {/* Grid toggle */}
+      <button
+        onClick={() => setShowGrid(g => !g)}
+        className="absolute bottom-[108px] right-[66px] px-1.5 py-0.5 text-[9px] font-mono border hairline transition-colors select-none"
+        style={{
+          background: showGrid ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.03)",
+          color: showGrid ? "rgba(255,255,255,0.70)" : "rgba(255,255,255,0.30)",
+          borderColor: showGrid ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.08)",
+        }}
+      >
+        grid
+      </button>
     </div>
   );
 }

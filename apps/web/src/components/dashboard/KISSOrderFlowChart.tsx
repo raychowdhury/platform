@@ -235,11 +235,8 @@ export default function KISSOrderFlowChart({ seed = 1, basePrice = 6020 }: { see
       const cY = pToPy(bar.c);
       const bodyTop = Math.min(oY, cY);
       const bodyH   = Math.max(1, Math.abs(cY - oY));
-      ctx.fillStyle   = isUp ? "rgba(38,166,154,0.20)" : "rgba(239,83,80,0.20)";
-      ctx.strokeStyle = isUp ? "rgba(38,166,154,0.55)" : "rgba(239,83,80,0.55)";
-      ctx.lineWidth = 1; ctx.setLineDash([]);
+      ctx.fillStyle = isUp ? "#26a69a" : "#ef5350";
       ctx.fillRect(cx - 2, bodyTop, 4, bodyH);
-      ctx.strokeRect(cx - 2, bodyTop, 4, bodyH);
 
       // ── Signals
       if (bar.signalDown) {

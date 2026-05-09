@@ -44,7 +44,7 @@ const TF_MS: Record<string, number> = {
 
 const TFS      = ["1m", "5m", "15m", "30m", "1H", "4H", "1D", "1W"];
 const TFS_COMP = ["5m", "15m", "1H", "4H", "1D"];
-const INDICATORS = ["MA(20)", "MA(50)", "MA(200)", "EMA(21)", "BB(20,2)", "VWAP", "RSI(14)", "MACD"];
+const INDICATORS = ["MA(20)", "MA(50)", "MA(200)", "EMA(21)", "BB(20,2)", "VWAP", "RSI(14)", "MACD", "Hammer↑", "Hammer↓"];
 const TOOLS = [
   { icon: Crosshair, label: "Cross"   },
   { icon: Pencil,    label: "Trend"   },
@@ -186,6 +186,60 @@ function calcMACD(data: any[]) {
   }));
 }
 
+// ─── Candlestick custom shapes ───────────────────────────────────────────────
+
+function CandleShape(props: any) {
+  const { x, y, width, height, payload } = props;
+  if (!payload || height <= 0) return null;
+  const { l, h, o, c } = payload;
+  if (h === l) return null;
+  const up    = c >= o;
+  const color = up ? "#26a69a" : "#ef5350";
+  const cx    = Math.round(x + width / 2);
+  const toY   = (price: number) => y + height * (h - price) / (h - l);
+  const bodyTop = toY(Math.max(o, c));
+  const bodyBot = toY(Math.min(o, c));
+  const bodyH   = Math.max(1.5, bodyBot - bodyTop);
+  const bodyW   = Math.max(3, Math.round(width * 0.65));
+  const bx      = Math.round(x + (width - bodyW) / 2);
+  return (
+    <g>
+      <line x1={cx} y1={y} x2={cx} y2={y + height} stroke={color} strokeWidth={1} />
+      <rect x={bx} y={bodyTop} width={bodyW} height={bodyH} fill={color} />
+    </g>
+  );
+}
+
+// ─── Hammer pattern detection ────────────────────────────────────────────────
+
+function detectHammer(d: any): boolean {
+  const body        = Math.abs(d.c - d.o);
+  const range       = d.h - d.l;
+  if (range < 0.01) return false;
+  const lowerShadow = Math.min(d.o, d.c) - d.l;
+  const upperShadow = d.h - Math.max(d.o, d.c);
+  return lowerShadow >= Math.max(body * 2, range * 0.3) && upperShadow <= range * 0.2 && body <= range * 0.35;
+}
+
+function detectShootingStar(d: any): boolean {
+  const body        = Math.abs(d.c - d.o);
+  const range       = d.h - d.l;
+  if (range < 0.01) return false;
+  const upperShadow = d.h - Math.max(d.o, d.c);
+  const lowerShadow = Math.min(d.o, d.c) - d.l;
+  return upperShadow >= Math.max(body * 2, range * 0.3) && lowerShadow <= range * 0.2 && body <= range * 0.35;
+}
+
+function HammerUpDot({ cx, cy, value }: any) {
+  if (value == null || cy == null) return null;
+  return <polygon points={`${cx},${cy - 9} ${cx - 6},${cy} ${cx + 6},${cy}`} fill="#22c55e" opacity={0.9} />;
+}
+
+function HammerDownDot({ cx, cy, value }: any) {
+  if (value == null || cy == null) return null;
+  return <polygon points={`${cx},${cy + 9} ${cx - 6},${cy} ${cx + 6},${cy}`} fill="#ef4444" opacity={0.9} />;
+}
+
 // ─── Layout icon ─────────────────────────────────────────────────────────────
 
 function LayoutIcon({ id }: { id: Layout }) {
@@ -323,8 +377,10 @@ function ChartPanel({
       ma20:  ma20[idx],  ma50:  ma50[idx],  ma200: ma200[idx], ema21: ema21[idx],
       ...bb[idx],
       vwap:  vwap[idx],
-      rsiV:  rsiV[idx],
+      rsiV:       rsiV[idx],
       ...macdV[idx],
+      hammerLow:  detectHammer(d)       ? d.l - 10 : null,
+      hammerHigh: detectShootingStar(d) ? d.h + 10 : null,
     }));
   }, [data, tf]);
 
@@ -375,24 +431,53 @@ function ChartPanel({
     else animId.current = null;
   };
 
-  // Wheel → zoom (must be passive:false to call preventDefault)
+  // Wheel — vertical = zoom, horizontal = pan
   useEffect(() => {
     const el = chartBodyRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const dir = e.deltaY > 0 ? 1 : -1; // scroll down = zoom out
-      const size = tgtE.current - tgtS.current;
-      const delta = size * 0.12 * dir;
-      let ns = tgtS.current + delta / 2;
-      let ne = tgtE.current - delta / 2;
-      if (ne - ns < MIN_WIN - 1) { const mid = (tgtS.current + tgtE.current) / 2; ns = mid - (MIN_WIN - 1) / 2; ne = mid + (MIN_WIN - 1) / 2; }
-      if (ns < 0) { ne -= ns; ns = 0; }
-      if (ne > TOTAL - 1) { ns -= ne - (TOTAL - 1); ne = TOTAL - 1; }
-      tgtS.current = Math.max(0, ns);
-      tgtE.current = Math.min(TOTAL - 1, ne);
-      if (animId.current) cancelAnimationFrame(animId.current);
-      animId.current = requestAnimationFrame(animFn.current);
+      const span = tgtE.current - tgtS.current;
+      let ns = tgtS.current;
+      let ne = tgtE.current;
+
+      // Horizontal scroll → pan (keep span fixed)
+      if (e.deltaX !== 0) {
+        const rect  = el.getBoundingClientRect();
+        const shift = (e.deltaX / rect.width) * span * 2.5;
+        ns += shift;
+        ne += shift;
+        if (ns < 0)         { ns = 0;         ne = span; }
+        if (ne > TOTAL - 1) { ne = TOTAL - 1; ns = Math.max(0, ne - span); }
+      }
+
+      // Vertical scroll → zoom
+      if (e.deltaY !== 0) {
+        const dir   = e.deltaY > 0 ? 1 : -1;
+        const delta = (ne - ns) * 0.12 * dir;
+        ns += delta / 2;
+        ne -= delta / 2;
+        if (ne - ns < MIN_WIN - 1) { const mid = (ns + ne) / 2; ns = mid - (MIN_WIN - 1) / 2; ne = mid + (MIN_WIN - 1) / 2; }
+        if (ns < 0) { ne -= ns; ns = 0; }
+        if (ne > TOTAL - 1) { ns -= ne - (TOTAL - 1); ne = TOTAL - 1; }
+        ns = Math.max(0, ns);
+        ne = Math.min(TOTAL - 1, ne);
+      }
+
+      tgtS.current = ns;
+      tgtE.current = ne;
+
+      // Horizontal dominant → immediate update for 1:1 trackpad feel
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        curS.current = ns;
+        curE.current = ne;
+        setWinStart(Math.round(Math.max(0, ns)));
+        setWinEnd(Math.round(Math.min(TOTAL - 1, ne)));
+        if (animId.current) { cancelAnimationFrame(animId.current); animId.current = null; }
+      } else {
+        if (animId.current) cancelAnimationFrame(animId.current);
+        animId.current = requestAnimationFrame(animFn.current);
+      }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
@@ -637,7 +722,7 @@ function ChartPanel({
               {chartType === "kiss"      && <KISSOrderFlowChart   basePrice={6020}                           seed={defaultSymIdx * 23 + 7} />}
             </div>
           ) : isDepth ? (
-            <div className={`${compact ? "flex-1 min-h-0" : "h-[560px]"} p-4 flex flex-col gap-3`}>
+            <div className="flex-1 min-h-0 p-4 flex flex-col gap-3">
               {/* Mid-price callout */}
               <div className="flex items-center justify-center gap-4 text-[11px] font-mono">
                 <span className="text-bull">Bid {book.bids[0].p.toFixed(2)}</span>
@@ -690,7 +775,7 @@ function ChartPanel({
               {/* ── Price chart ── */}
               <div
                 ref={chartBodyRef}
-                className={compact ? "flex-1 min-h-0 p-2 relative" : "h-[380px] p-2 relative"}
+                className="flex-1 min-h-0 p-2 relative"
                 onMouseDown={onPanDown}
                 onMouseLeave={() => setCrosshair(null)}
                 style={{ cursor: isGrabbing ? "grabbing" : "crosshair", userSelect: "none" }}
@@ -704,12 +789,15 @@ function ChartPanel({
                       <YAxis orientation="right" tickFormatter={fmtPrice} tick={{ fontSize: 10, fill: "var(--chart-axis)" }} domain={["dataMin - 30", "dataMax + 30"]} axisLine={false} tickLine={false} width={50} />
                       <ChartTooltip cursor={{ stroke: "var(--chart-cursor)", strokeDasharray: 3 }}
                         contentStyle={{ background: "var(--tooltip-bg)", border: "1px solid var(--tooltip-border)", fontSize: 11, color: "var(--foreground)" }} labelFormatter={() => ""} />
+                      <ReferenceLine y={last.h} stroke="rgba(38,166,154,0.35)" strokeDasharray="2 4"
+                        label={!compact ? { value: `H ${last.h.toFixed(2)}`, fill: "rgba(38,166,154,0.75)", fontSize: 9, position: "right" } : undefined} />
+                      <ReferenceLine y={last.o} stroke="rgba(180,180,180,0.25)" strokeDasharray="2 4"
+                        label={!compact ? { value: `O ${last.o.toFixed(2)}`, fill: "rgba(180,180,180,0.60)", fontSize: 9, position: "right" } : undefined} />
                       <ReferenceLine y={last.c} stroke="color-mix(in oklab, var(--violet) 50%, transparent)" strokeDasharray="3 3"
-                        label={!compact ? { value: last.c.toFixed(0), fill: "var(--violet)", fontSize: 10, position: "right" } : undefined} />
-                      <Bar dataKey="wick" fill="transparent" stroke="var(--chart-wick)" strokeWidth={1} />
-                      <Bar dataKey="body">
-                        {visibleData.map((d, i) => <Cell key={i} fill={d.up ? "var(--bull)" : "var(--bear)"} />)}
-                      </Bar>
+                        label={!compact ? { value: `C ${last.c.toFixed(2)}`, fill: "var(--violet)", fontSize: 9, position: "right" } : undefined} />
+                      <ReferenceLine y={last.l} stroke="rgba(239,83,80,0.35)" strokeDasharray="2 4"
+                        label={!compact ? { value: `L ${last.l.toFixed(2)}`, fill: "rgba(239,83,80,0.75)", fontSize: 9, position: "right" } : undefined} />
+                      <Bar dataKey="wick" shape={<CandleShape />} isAnimationActive={false} />
                       <Line type="monotone" dataKey="c" stroke="color-mix(in oklab, var(--violet) 60%, transparent)" strokeWidth={1.2} dot={false} />
                       {activeIndicators.has("MA(20)")   && <Line type="monotone" dataKey="ma20"    stroke="#60a5fa" strokeWidth={1}   dot={false} connectNulls legendType="none" />}
                       {activeIndicators.has("MA(50)")   && <Line type="monotone" dataKey="ma50"    stroke="#a78bfa" strokeWidth={1}   dot={false} connectNulls legendType="none" />}
@@ -719,6 +807,8 @@ function ChartPanel({
                       {activeIndicators.has("BB(20,2)") && <Line type="monotone" dataKey="bbLower" stroke="rgba(148,163,184,0.55)" strokeWidth={1} strokeDasharray="3 2" dot={false} connectNulls legendType="none" />}
                       {activeIndicators.has("BB(20,2)") && <Line type="monotone" dataKey="bbMid"   stroke="rgba(148,163,184,0.3)"  strokeWidth={1} dot={false} connectNulls legendType="none" />}
                       {activeIndicators.has("VWAP")     && <Line type="monotone" dataKey="vwap"    stroke="#fb923c" strokeWidth={1.5} strokeDasharray="4 2" dot={false} connectNulls legendType="none" />}
+                      {activeIndicators.has("Hammer↑")  && <Line dataKey="hammerLow"  strokeWidth={0} dot={<HammerUpDot />}   isAnimationActive={false} legendType="none" />}
+                      {activeIndicators.has("Hammer↓")  && <Line dataKey="hammerHigh" strokeWidth={0} dot={<HammerDownDot />} isAnimationActive={false} legendType="none" />}
                     </ComposedChart>
                   ) : chartType === "line" ? (
                     <ComposedChart data={visibleData} margin={{ top: 8, right: 50, left: 0, bottom: 0 }}
@@ -981,12 +1071,10 @@ export default function ChartsPage() {
     "2v":  "grid grid-cols-1 divide-y divide-[var(--hairline)]",
     "2x2": "grid grid-cols-2 divide-x divide-[var(--hairline)]",
   };
-  const gridStyle: React.CSSProperties = compact
-    ? {
-        height: layout === "2x2" ? "640px" : layout === "2v" ? "600px" : "600px",
-        gridTemplateRows: layout === "2x2" || layout === "2v" ? "1fr 1fr" : "1fr",
-      }
-    : {};
+  const gridStyle: React.CSSProperties = {
+    height: layout === "2x2" ? "640px" : layout === "2v" || layout === "2h" ? "600px" : "100%",
+    gridTemplateRows: layout === "2x2" || layout === "2v" ? "1fr 1fr" : "1fr",
+  };
 
   return (
     <div className={maximized ? "fixed inset-0 z-[100] bg-background overflow-auto flex flex-col gap-5 p-5" : "contents"}>
@@ -1016,9 +1104,9 @@ export default function ChartsPage() {
       </div>
 
       {/* ── Chart + Order book grid ── */}
-      <div className={`grid grid-cols-1 gap-5 xl:transition-[grid-template-columns] xl:duration-300 xl:ease-in-out ${bookCollapsed ? "xl:grid-cols-[1fr_36px]" : "xl:grid-cols-[1fr_280px]"}`}>
+      <div className={`grid grid-cols-1 gap-5 xl:transition-[grid-template-columns] xl:duration-300 xl:ease-in-out xl:h-[680px] ${bookCollapsed ? "xl:grid-cols-[1fr_36px]" : "xl:grid-cols-[1fr_280px]"}`}>
         {/* Chart workspace */}
-        <section className="glass p-0 flex flex-col order-1 overflow-hidden">
+        <section className="glass p-0 flex flex-col order-1 overflow-hidden xl:h-full">
           <div className={`${gridClass[layout]} overflow-hidden`} style={gridStyle}>
             {Array.from({ length: panelCount }, (_, i) => (
               <ChartPanel
@@ -1034,7 +1122,7 @@ export default function ChartsPage() {
         </section>
 
         {/* ── Order book ── */}
-        <aside className="glass flex flex-col order-2 overflow-hidden relative">
+        <aside className="glass flex flex-col order-2 overflow-hidden relative xl:h-full">
           {/* Collapsed strip — fades in when collapsed */}
           <div className={`absolute inset-0 flex flex-col items-center justify-center transition-opacity duration-200 ${bookCollapsed ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"}`}>
             <button
@@ -1133,7 +1221,7 @@ export default function ChartsPage() {
 
             {/* Asks (sell side) */}
             {bookView !== "buy" && (
-              <div className="flex flex-col overflow-y-auto">
+              <div className="flex-1 min-h-0 flex flex-col overflow-y-auto">
                 {aggAsks.slice().reverse().map((a, i) => (
                   <div key={i} className="relative grid grid-cols-3 px-4 py-1 text-[11px] font-mono">
                     <div className="absolute inset-y-0 right-0 bg-bear/10" style={{ width: `${Math.min(a.s * 18, 95)}%` }} />
@@ -1157,7 +1245,7 @@ export default function ChartsPage() {
 
             {/* Bids (buy side) */}
             {bookView !== "sell" && (
-              <div className="flex flex-col overflow-y-auto">
+              <div className="flex-1 min-h-0 flex flex-col overflow-y-auto">
                 {aggBids.map((b, i) => (
                   <div key={i} className="relative grid grid-cols-3 px-4 py-1 text-[11px] font-mono">
                     <div className="absolute inset-y-0 right-0 bg-bull/10" style={{ width: `${Math.min(b.s * 18, 95)}%` }} />

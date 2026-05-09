@@ -210,11 +210,8 @@ export default function FootprintDeltaChart({ seed = 1, basePrice = 70500 }: { s
       ctx.strokeStyle = isUp ? "rgba(38,166,154,0.5)" : "rgba(239,83,80,0.5)";
       ctx.lineWidth = 1.5; ctx.setLineDash([]);
       ctx.beginPath(); ctx.moveTo(cx, hY); ctx.lineTo(cx, lY); ctx.stroke();
-      ctx.fillStyle = isUp ? "rgba(38,166,154,0.10)" : "rgba(239,83,80,0.10)";
+      ctx.fillStyle = isUp ? "rgba(38,166,154,0.62)" : "rgba(239,83,80,0.62)";
       ctx.fillRect(barX + DLTA_W, bodyTop, CENT_W, bodyH);
-      ctx.strokeStyle = isUp ? "rgba(38,166,154,0.38)" : "rgba(239,83,80,0.38)";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(barX + DLTA_W, bodyTop, CENT_W, bodyH);
 
       // Price levels
       bar.levels.forEach(lv => {

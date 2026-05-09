@@ -281,11 +281,12 @@ export default function ESRTHChart({ seed = 1, basePrice = 4187 }: { seed?: numb
       const cY   = pToPy(bar.c) + ROW_H / 2;
       const hY   = pToPy(bar.h) + ROW_H / 2;
       const lY   = pToPy(bar.l) + ROW_H / 2;
-      ctx.strokeStyle = isUp ? "rgba(0,200,80,0.45)" : "rgba(200,30,30,0.45)";
+      const candleColor = isUp ? "#26a69a" : "#ef5350";
+      ctx.strokeStyle = candleColor;
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(cx, hY); ctx.lineTo(cx, lY); ctx.stroke();
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(cx - 3.5, Math.min(oY, cY), 7, Math.max(2, Math.abs(cY - oY)));
+      ctx.fillStyle = candleColor;
+      ctx.fillRect(cx - 3.5, Math.min(oY, cY), 7, Math.max(2, Math.abs(cY - oY)));
     });
 
     // ── Volume profile (right of footprint, left of DOM)

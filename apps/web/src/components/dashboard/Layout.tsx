@@ -26,7 +26,7 @@ export function DashboardLayout({
       <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
       <div className="flex-1 min-w-0 flex flex-col">
         <Topbar onMenu={() => setCollapsed((c) => !c)} breadcrumb={breadcrumb} />
-        <main className="flex-1 p-4 lg:p-6 flex flex-col gap-5 max-w-[1600px] w-full mx-auto">
+        <main className="flex-1 p-4 lg:p-6 flex flex-col gap-5 w-full">
           {children}
           <footer className="text-[11px] text-muted-foreground flex items-center justify-between py-6 border-t hairline mt-auto">
             <span>© Trevise — Trading OS</span>

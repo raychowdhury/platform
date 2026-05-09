@@ -199,8 +199,8 @@ export default function FootprintChart({ seed = 1, basePrice = 4262 }: { seed?: 
       ctx.strokeStyle = color;
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(cx, hY); ctx.lineTo(cx, lY); ctx.stroke();
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(cx - 4, Math.min(oY, cY), 8, Math.max(2, Math.abs(cY - oY)));
+      ctx.fillStyle = color;
+      ctx.fillRect(cx - 4, Math.min(oY, cY), 8, Math.max(2, Math.abs(cY - oY)));
     });
 
     // ── bottom strip

@@ -49,27 +49,55 @@ export function useCanvasPanZoom(total: number, defaultVisible: number) {
     return () => obs.disconnect();
   }, []);
 
-  // Wheel zoom — must be passive:false to call preventDefault
+  // Wheel — vertical = zoom, horizontal = pan
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      const dir   = e.deltaY > 0 ? 1 : -1;          // scroll down = zoom out
-      const span  = tgtE.current - tgtS.current;
-      const delta = span * 0.12 * dir;
-      let ns = tgtS.current + delta / 2;
-      let ne = tgtE.current - delta / 2;
-      // enforce minimum window
-      if (ne - ns < MIN_WIN) {
-        const mid = (ns + ne) / 2;
-        ns = mid - MIN_WIN / 2;
-        ne = mid + MIN_WIN / 2;
+      const span = tgtE.current - tgtS.current;
+      let ns = tgtS.current;
+      let ne = tgtE.current;
+
+      // Horizontal scroll → pan (keep span fixed)
+      if (e.deltaX !== 0) {
+        const rect  = el.getBoundingClientRect();
+        const shift = (e.deltaX / rect.width) * span * 2.5;
+        ns += shift;
+        ne += shift;
+        if (ns < 0)           { ns = 0;           ne = span; }
+        if (ne > total - 1)   { ne = total - 1;   ns = Math.max(0, ne - span); }
       }
-      tgtS.current = Math.max(0, ns);
-      tgtE.current = Math.min(total - 1, ne);
-      if (animId.current) cancelAnimationFrame(animId.current);
-      animId.current = requestAnimationFrame(animFn.current);
+
+      // Vertical scroll → zoom (shrink/expand span around midpoint)
+      if (e.deltaY !== 0) {
+        const dir   = e.deltaY > 0 ? 1 : -1;
+        const delta = (ne - ns) * 0.12 * dir;
+        ns += delta / 2;
+        ne -= delta / 2;
+        if (ne - ns < MIN_WIN) {
+          const mid = (ns + ne) / 2;
+          ns = mid - MIN_WIN / 2;
+          ne = mid + MIN_WIN / 2;
+        }
+        ns = Math.max(0, ns);
+        ne = Math.min(total - 1, ne);
+      }
+
+      tgtS.current = ns;
+      tgtE.current = ne;
+
+      // Horizontal dominant → immediate update (no lerp) for 1:1 trackpad feel
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        curS.current = ns;
+        curE.current = ne;
+        setWinStart(Math.round(Math.max(0, ns)));
+        setWinEnd(Math.round(Math.min(total - 1, ne)));
+        if (animId.current) { cancelAnimationFrame(animId.current); animId.current = null; }
+      } else {
+        if (animId.current) cancelAnimationFrame(animId.current);
+        animId.current = requestAnimationFrame(animFn.current);
+      }
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
