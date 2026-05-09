@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { genSpark, rand } from "@/lib/chart-data";
 import { Area, AreaChart, ResponsiveContainer, RadialBar, RadialBarChart } from "recharts";
 import { ArrowDownRight, ArrowUpRight, Flame, Globe2, TrendingDown, TrendingUp, Search, Filter, Star, X } from "lucide-react";
@@ -65,7 +66,10 @@ function Spark({ up, seed }: { up: boolean; seed: number }) {
   );
 }
 
+const SYMS = ["AAPL","MSFT","NVDA","AAPL","MSFT","TSLA","AMD","META","GOLD","AMZN"];
+
 export default function MarketsPage() {
+  const router = useRouter();
   const [region, setRegion] = useState("Global");
   const [regionOpen, setRegionOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -213,8 +217,9 @@ export default function MarketsPage() {
                   key={i}
                   className="aspect-square p-1.5 flex flex-col justify-between text-[9px] font-mono border border-white/5 hover:border-white/20 transition-colors cursor-pointer"
                   style={{ background: `color-mix(in oklab, ${color} ${intensity * 32}%, oklch(0.18 0.01 260))` }}
+                  onClick={() => router.push(`/dashboard/markets/${SYMS[i % 10]}`)}
                 >
-                  <span className="font-sans text-[10px] truncate">{["AAPL","MSFT","NVDA","AAPL","MSFT","TSLA","AMD","META","GOLD","AMZN"][i % 10]}</span>
+                  <span className="font-sans text-[10px] truncate">{SYMS[i % 10]}</span>
                   <span className={ch >= 0 ? "text-bull" : "text-bear"}>{ch >= 0 ? "+" : ""}{ch.toFixed(2)}%</span>
                 </div>
               );
