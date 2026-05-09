@@ -7,9 +7,12 @@ export function MarketingNav() {
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-xl">
       <div className="max-w-[1280px] mx-auto px-6 h-14 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="size-6 rounded-[6px] bg-gradient-to-br from-accent to-violet grid place-items-center text-[10px] font-bold">T</div>
-          <span className="font-display text-lg tracking-tight">Trevise</span>
+        <Link href="/" className="flex items-center gap-2.5">
+          <div className="w-6 h-6 bg-accent grid place-items-center shrink-0">
+            <span className="font-mono text-[11px] font-bold text-accent-foreground">T</span>
+          </div>
+          <span className="font-display text-[13px] tracking-tight">TREVISE</span>
+          <span className="hidden sm:inline text-[9px] font-mono text-muted-foreground tracking-[0.2em] ml-1">TERMINAL · v4.2</span>
         </Link>
         <nav className="hidden md:flex items-center gap-7 text-[13px] text-foreground/70">
           <Link href="/about" className="hover:text-foreground">About</Link>

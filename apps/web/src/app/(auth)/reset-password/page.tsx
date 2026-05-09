@@ -30,9 +30,12 @@ export default function Reset() {
         <div className="absolute -top-40 left-1/2 -translate-x-1/2 size-[700px] rounded-full bg-[radial-gradient(closest-side,oklch(0.6_0.22_280/0.25),transparent)] blur-3xl" />
       </div>
       <div className="w-full max-w-sm">
-        <Link href="/" className="flex items-center gap-2 mb-10 justify-center">
-          <div className="size-7 rounded-[6px] bg-gradient-to-br from-accent to-violet grid place-items-center text-[11px] font-bold">T</div>
-          <span className="font-display text-xl">Trevise</span>
+        <Link href="/" className="flex items-center gap-2.5 mb-10 justify-center">
+          <div className="w-6 h-6 bg-accent grid place-items-center shrink-0">
+            <span className="font-mono text-[11px] font-bold text-accent-foreground">T</span>
+          </div>
+          <span className="font-display text-[13px] tracking-tight">TREVISE</span>
+          <span className="text-[9px] font-mono text-muted-foreground tracking-[0.2em] ml-1">TERMINAL · v4.2</span>
         </Link>
 
         <div className="size-12 rounded-full bg-muted grid place-items-center"><ShieldCheck className="size-5 text-accent" /></div>
