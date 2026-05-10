@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { rand } from "@/lib/chart-data";
+import type { ApiTpo } from "@/lib/api";
 import { useCanvasPanZoom } from "./useCanvasPanZoom";
 
 // TPO Daily RTH Delta — Market Profile chart
@@ -133,7 +134,15 @@ function genVolProfile(sessions: TPOSession[], pMin: number, pMax: number): VolB
   return out;
 }
 
-export default function TPOChart({ seed = 1, basePrice = 5700 }: { seed?: number; basePrice?: number }) {
+export default function TPOChart({
+  seed = 1,
+  basePrice = 5700,
+  live: _live,
+}: {
+  seed?: number;
+  basePrice?: number;
+  live?: ApiTpo;
+}) {
   const { containerRef, size, winStart, winEnd, isGrabbing } = useCanvasPanZoom(20, 8);
   const canvasRef    = useRef<HTMLCanvasElement>(null);
 

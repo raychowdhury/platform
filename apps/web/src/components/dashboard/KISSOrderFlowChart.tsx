@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { rand } from "@/lib/chart-data";
+import type { ApiCvdBar } from "@/lib/api";
 import { useCanvasPanZoom } from "./useCanvasPanZoom";
 
 const TICK = 0.25;
@@ -106,7 +107,15 @@ function genZones(bars: KBar[]): Zone[] {
   return zones;
 }
 
-export default function KISSOrderFlowChart({ seed = 1, basePrice = 6020 }: { seed?: number; basePrice?: number }) {
+export default function KISSOrderFlowChart({
+  seed = 1,
+  basePrice = 6020,
+  live: _live,
+}: {
+  seed?: number;
+  basePrice?: number;
+  live?: ApiCvdBar[];
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { containerRef, size, winStart, winEnd, isGrabbing } = useCanvasPanZoom(TOTAL_BARS, VISIBLE_BARS);
 

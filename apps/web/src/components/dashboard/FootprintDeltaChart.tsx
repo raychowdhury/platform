@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { rand } from "@/lib/chart-data";
+import type { ApiFPBar } from "@/lib/api";
 import { useCanvasPanZoom } from "./useCanvasPanZoom";
 
 const TICK = 50;
@@ -88,7 +89,15 @@ function genBars(seed: number, base: number): FPBar[] {
   return bars;
 }
 
-export default function FootprintDeltaChart({ seed = 1, basePrice = 70500 }: { seed?: number; basePrice?: number }) {
+export default function FootprintDeltaChart({
+  seed = 1,
+  basePrice = 70500,
+  live: _live,
+}: {
+  seed?: number;
+  basePrice?: number;
+  live?: ApiFPBar[];
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { containerRef, size, winStart, winEnd, isGrabbing } = useCanvasPanZoom(TOTAL_BARS, VISIBLE_BARS);
 

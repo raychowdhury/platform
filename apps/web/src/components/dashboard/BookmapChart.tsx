@@ -114,22 +114,23 @@ export default function BookmapChart({ candles, seed = 1 }: Props) {
 
   // Layout constants
   const VOL_H  = 48;
-  const BOOK_W = 70;
-  const AXIS_Y = 52;  // right price axis
+  const BOOK_W = 140; // right-side resting depth profile (was 70 — too cramped to read)
+  const AXIS_Y = 60;  // right price axis (slightly wider for 4-digit ES prices)
   const AXIS_X = 20;  // bottom time axis
 
   const TICK = 0.5;
 
-  const priceMin = Math.min(...candles.map(d => d.l)) - 2;
-  const priceMax = Math.max(...candles.map(d => d.h)) + 2;
+  const priceMin = candles.length > 0 ? Math.min(...candles.map(d => d.l)) - 2 : 0;
+  const priceMax = candles.length > 0 ? Math.max(...candles.map(d => d.h)) + 2 : 1;
   const nTicks   = Math.round((priceMax - priceMin) / TICK) + 1;
   const lastC    = candles[candles.length - 1];
 
-  // Memoised heavy data
+  // Memoised heavy data — only initialise once we actually have candles, else
+  // genBook(undefined.c) crashes the panel during the brief loading state.
   const heat = useRef<Float32Array | null>(null);
   const book = useRef<ReturnType<typeof genBook> | null>(null);
-  if (!heat.current) heat.current = genHeatmap(candles, TICK, priceMin, nTicks, seed);
-  if (!book.current) book.current = genBook(lastC.c, seed + 500);
+  if (!heat.current && candles.length > 0) heat.current = genHeatmap(candles, TICK, priceMin, nTicks, seed);
+  if (!book.current && lastC) book.current = genBook(lastC.c, seed + 500);
 
   // MA lines
   const closes = candles.map(d => d.c as number | null);
@@ -138,7 +139,7 @@ export default function BookmapChart({ candles, seed = 1 }: Props) {
 
   const draw = useCallback(() => {
     const canvas = heatCanvasRef.current;
-    if (!canvas || !heat.current || !book.current) return;
+    if (!canvas || !heat.current || !book.current || candles.length === 0) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 

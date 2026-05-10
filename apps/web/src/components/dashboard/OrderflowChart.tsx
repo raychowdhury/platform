@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { rand } from "@/lib/chart-data";
+import type { ApiFPBar } from "@/lib/api";
 import { useCanvasPanZoom } from "./useCanvasPanZoom";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -126,12 +127,46 @@ function genDOM(price: number, seed: number, n = 20): DOMRow[] {
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function OrderflowChart({ seed = 1, basePrice = 5710 }: { seed?: number; basePrice?: number }) {
-  const { containerRef, size, winStart, winEnd, isGrabbing } = useCanvasPanZoom(120, 40);
+// `live` is the real per-bar OHLC + buy/sell volume from /v1/market/footprint.
+// Each bar is converted into the chart's internal OFCandle shape; large-trade
+// circles + per-row DOM panel are still mock since L2 depth (mbp-10) is not
+// authorized on this Databento plan.
+export default function OrderflowChart({
+  seed = 1,
+  basePrice = 5710,
+  live,
+}: {
+  seed?: number;
+  basePrice?: number;
+  live?: ApiFPBar[];
+}) {
   const canvasRef    = useRef<HTMLCanvasElement>(null);
 
-  const candles = useMemo(() => genOFCandles(120, basePrice, seed), [seed, basePrice]);
-  const lastC   = candles[candles.length - 1];
+  // Live FP bars → OFCandle. Falls back to seed-based mock when no live
+  // data has arrived yet (or when symbol isn't on the backend).
+  const candles = useMemo<OFCandle[]>(() => {
+    if (!live || live.length === 0) return genOFCandles(120, basePrice, seed);
+    return live.map((b, i) => {
+      let buyVol = 0, sellVol = 0;
+      for (const lv of b.levels) {
+        buyVol += lv.buy_volume;
+        sellVol += lv.sell_volume;
+      }
+      return {
+        o: b.open, h: b.high, l: b.low, c: b.close,
+        ts: i,
+        vol: b.volume,
+        delta: b.delta,
+        buyVol,
+        sellVol,
+      };
+    });
+  }, [live, basePrice, seed]);
+
+  // Pan/zoom hook sized to the actual candles array so live data with
+  // fewer than 120 bars doesn't yield empty slices.
+  const { containerRef, size, winStart, winEnd, isGrabbing } = useCanvasPanZoom(candles.length, Math.min(40, candles.length));
+  const lastC   = candles[candles.length - 1] ?? { o: 0, h: 0, l: 0, c: 0, ts: 0, vol: 0, delta: 0, buyVol: 0, sellVol: 0 };
 
   const trades  = useMemo(() => genLargeTrades(candles, seed + 77), [candles, seed]);
 
@@ -151,7 +186,12 @@ export default function OrderflowChart({ seed = 1, basePrice = 5710 }: { seed?: 
     canvas.style.height = `${h}px`;
     ctx.scale(dpr, dpr);
 
-    const visCands = candles.slice(winStart, winEnd + 1);
+    // Clamp window to current candles length (useCanvasPanZoom may carry
+    // stale indices when total flips between mock 120 and live 30 etc).
+    const sClamp = Math.max(0, Math.min(winStart, candles.length - 1));
+    const eClamp = Math.max(sClamp, Math.min(winEnd, candles.length - 1));
+    const visCands = candles.slice(sClamp, eClamp + 1);
+    if (visCands.length === 0) return;
     const nCandles = visCands.length;
     const CW = (w - 160 - 40) / nCandles;
     const tToX = (i: number) => i * CW + CW / 2;
@@ -164,10 +204,13 @@ export default function OrderflowChart({ seed = 1, basePrice = 5710 }: { seed?: 
     const hLevels = genHLevels(pMin, pMax, seed + 33);
     const volProf = genVolProfile(visCands, pMin, pMax);
 
-    // Layout
-    const DOM_W   = 160;
-    const PROF_W  = 40;
-    const VOL_H   = 60;
+    // Layout. DOM_W bumped 1.5× from 160 → 240 so trader-relevant numbers
+    // (price, bid/ask size) are readable instead of cramped. All column
+    // offsets below (price/PS/buy/RB/RA/sell) are scaled by SC = DOM_W/160.
+    const DOM_W   = 240;
+    const PROF_W  = 50;
+    const VOL_H   = 72;
+    const SC      = DOM_W / 160; // column-offset scale factor
 
     const chartW = w - DOM_W - PROF_W;
     const chartH = h - VOL_H;
@@ -277,29 +320,34 @@ export default function OrderflowChart({ seed = 1, basePrice = 5710 }: { seed?: 
 
     // DOM header row
     const domCols = [
-      { label: "Price", x: domX + 38, color: "#888" },
-      { label: "P/S",   x: domX + 62, color: "#888" },
-      { label: "Buy",   x: domX + 85, color: "#4af" },
-      { label: "RB",    x: domX + 107, color: "#666" },
-      { label: "RA",    x: domX + 125, color: "#666" },
-      { label: "Sell",  x: domX + 148, color: "#f55" },
+      { label: "Price", x: domX + 38 * SC,  color: "#aaa" },
+      { label: "P/S",   x: domX + 62 * SC,  color: "#aaa" },
+      { label: "Buy",   x: domX + 85 * SC,  color: "#4af" },
+      { label: "RB",    x: domX + 107 * SC, color: "#888" },
+      { label: "RA",    x: domX + 125 * SC, color: "#888" },
+      { label: "Sell",  x: domX + 148 * SC, color: "#f55" },
     ];
-    ctx.font = "bold 8px sans-serif";
+    ctx.font = "bold 11px sans-serif";
     domCols.forEach(col => {
       ctx.fillStyle = col.color;
       ctx.textAlign = "center";
-      ctx.fillText(col.label, col.x, 10);
+      ctx.fillText(col.label, col.x, 12);
     });
     ctx.strokeStyle = "rgba(255,255,255,0.06)";
-    ctx.beginPath(); ctx.moveTo(domX, 14); ctx.lineTo(domX + DOM_W, 14); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(domX, 18); ctx.lineTo(domX + DOM_W, 18); ctx.stroke();
 
-    const domTickH = Math.max(12, chartH / dom.length);
+    // DOM rows now live in their own evenly-spaced column (independent of
+    // chart price-axis scale) — the chart's pToPy maps many DOM rows to
+    // overlapping pixels when DOM tick density > chart tick density,
+    // squishing all numbers into an unreadable band. Equal slot per row
+    // fixes that.
+    const domAreaH  = h - 18; // header takes top 18px
+    const domTickH  = Math.max(14, Math.floor(domAreaH / dom.length));
     const maxDomBid = Math.max(...dom.map(r => r.bidSz));
     const maxDomAsk = Math.max(...dom.map(r => r.askSz));
 
-    dom.forEach(dr => {
-      if (dr.price < pMin - 1 || dr.price > pMax + 1) return;
-      const rowY = pToPy(dr.price);
+    dom.forEach((dr, idx) => {
+      const rowY = 18 + idx * domTickH;
       const rh   = Math.max(1, domTickH - 1);
       const isCur = Math.abs(dr.price - lastC.c) < TICK / 2;
       const isAsk = dr.askSz > 0;
@@ -317,44 +365,45 @@ export default function OrderflowChart({ seed = 1, basePrice = 5710 }: { seed?: 
       }
 
       const ty = rowY + domTickH * 0.65;
-      ctx.font = `${Math.min(9, domTickH - 3)}px 'JetBrains Mono', monospace`;
+      ctx.font = `${Math.min(12, domTickH - 3)}px 'JetBrains Mono', monospace`;
 
       // Price
-      ctx.fillStyle = isCur ? "#ffcc44" : "#777";
+      ctx.fillStyle = isCur ? "#ffcc44" : "#aaa";
       ctx.textAlign = "right";
-      ctx.fillText(dr.price.toFixed(2), domX + 56, ty);
+      ctx.fillText(dr.price.toFixed(2), domX + 56 * SC, ty);
 
       // P/S
       const psColor = dr.ps > 0 ? "#4af" : dr.ps < 0 ? "#f55" : "#555";
       ctx.fillStyle = psColor;
       ctx.textAlign = "center";
-      ctx.fillText(dr.ps !== 0 ? dr.ps.toString() : "", domX + 62, ty);
+      ctx.fillText(dr.ps !== 0 ? dr.ps.toString() : "", domX + 62 * SC, ty);
 
+      const BAR_MAX = 28 * SC;
       if (isAsk) {
         // Sell bar (red)
-        const aw = Math.min((dr.askSz / maxDomAsk) * 28, 28);
+        const aw = Math.min((dr.askSz / maxDomAsk) * BAR_MAX, BAR_MAX);
         const bigWall = dr.askSz > maxDomAsk * 0.3;
         ctx.fillStyle = bigWall ? "rgba(255,40,40,0.85)" : "rgba(180,30,30,0.55)";
-        ctx.fillRect(domX + 130, rowY + 1, aw, rh - 2);
-        ctx.fillStyle = bigWall ? "#ffaaaa" : "#993333";
+        ctx.fillRect(domX + 130 * SC, rowY + 1, aw, rh - 2);
+        ctx.fillStyle = bigWall ? "#ffaaaa" : "#cc6666";
         ctx.textAlign = "center";
-        ctx.fillText(dr.askSz.toString(), domX + 148, ty);
+        ctx.fillText(dr.askSz.toString(), domX + 148 * SC, ty);
         // RB/RA columns (RTH metrics, simulated)
-        ctx.fillStyle = "#333";
-        ctx.fillText(Math.round(dr.askSz * 0.3).toString(), domX + 107, ty);
-        ctx.fillText(Math.round(dr.askSz * 0.7).toString(), domX + 125, ty);
+        ctx.fillStyle = "#666";
+        ctx.fillText(Math.round(dr.askSz * 0.3).toString(), domX + 107 * SC, ty);
+        ctx.fillText(Math.round(dr.askSz * 0.7).toString(), domX + 125 * SC, ty);
       } else {
         // Buy bar (blue)
-        const bw = Math.min((dr.bidSz / maxDomBid) * 28, 28);
+        const bw = Math.min((dr.bidSz / maxDomBid) * BAR_MAX, BAR_MAX);
         const bigWall = dr.bidSz > maxDomBid * 0.3;
         ctx.fillStyle = bigWall ? "rgba(40,140,255,0.85)" : "rgba(30,80,180,0.55)";
-        ctx.fillRect(domX + 57, rowY + 1, bw, rh - 2);
-        ctx.fillStyle = bigWall ? "#aaccff" : "#336699";
+        ctx.fillRect(domX + 57 * SC, rowY + 1, bw, rh - 2);
+        ctx.fillStyle = bigWall ? "#aaccff" : "#6699cc";
         ctx.textAlign = "center";
-        ctx.fillText(dr.bidSz.toString(), domX + 85, ty);
-        ctx.fillStyle = "#333";
-        ctx.fillText(Math.round(dr.bidSz * 0.3).toString(), domX + 107, ty);
-        ctx.fillText(Math.round(dr.bidSz * 0.7).toString(), domX + 125, ty);
+        ctx.fillText(dr.bidSz.toString(), domX + 85 * SC, ty);
+        ctx.fillStyle = "#666";
+        ctx.fillText(Math.round(dr.bidSz * 0.3).toString(), domX + 107 * SC, ty);
+        ctx.fillText(Math.round(dr.bidSz * 0.7).toString(), domX + 125 * SC, ty);
       }
 
       // row separator
@@ -363,14 +412,16 @@ export default function OrderflowChart({ seed = 1, basePrice = 5710 }: { seed?: 
       ctx.beginPath(); ctx.moveTo(domX, rowY + rh); ctx.lineTo(domX + DOM_W, rowY + rh); ctx.stroke();
     });
 
-    // DOM current price badge
-    const cpY = pToPy(lastC.c);
+    // DOM current price badge — anchored to the DOM row whose price matches
+    // lastC.c (independent slot grid; chart pToPy would land on a different y).
+    const curIdx = dom.findIndex(r => Math.abs(r.price - lastC.c) < TICK / 2);
+    const cpY = curIdx >= 0 ? 18 + curIdx * domTickH + domTickH * 0.5 : pToPy(lastC.c);
     ctx.fillStyle = "#ffcc00";
-    ctx.fillRect(domX, cpY - 7, 56, 14);
+    ctx.fillRect(domX, cpY - 9, 84 * SC / 1.5, 18);
     ctx.fillStyle = "#000";
-    ctx.font = "bold 8px 'JetBrains Mono', monospace";
+    ctx.font = "bold 11px 'JetBrains Mono', monospace";
     ctx.textAlign = "center";
-    ctx.fillText(lastC.c.toFixed(2), domX + 28, cpY + 4);
+    ctx.fillText(lastC.c.toFixed(2), domX + 28 * SC, cpY + 5);
 
     // ── Bottom volume bars
     const volY = chartH;

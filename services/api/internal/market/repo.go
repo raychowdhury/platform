@@ -94,6 +94,50 @@ func (r *Repo) Candles(ctx context.Context, symbol, tf string, from, to time.Tim
 	return out, rows.Err()
 }
 
+// CandlesTail returns the last `limit` buckets at or before `before`,
+// in chronological (oldest-first) order. Used when the caller has no
+// explicit from/to range and just wants the most recent N bars — avoids
+// returning the *oldest* N from a wide range, which is what range-mode
+// Candles would do. Skips weekend/holiday gaps naturally because it
+// orders by bucket DESC then trims.
+func (r *Repo) CandlesTail(ctx context.Context, symbol, tf string, before time.Time, limit int) ([]Candle, error) {
+	view, ok := tfToView[tf]
+	if !ok {
+		return nil, errors.New("invalid tf")
+	}
+	if limit <= 0 || limit > 5000 {
+		limit = 500
+	}
+	query := fmt.Sprintf(`
+		SELECT bucket, symbol, open, high, low, close, volume, trades
+		FROM %s
+		WHERE symbol = $1 AND bucket < $2
+		ORDER BY bucket DESC
+		LIMIT $3
+	`, view)
+	rows, err := r.db.Query(ctx, query, symbol, before, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Candle
+	for rows.Next() {
+		var c Candle
+		if err := rows.Scan(&c.Time, &c.Symbol, &c.Open, &c.High, &c.Low, &c.Close, &c.Volume, &c.Trades); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Reverse to chronological order so the FE chart can render left → right.
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}
+
 func (r *Repo) RecentTicks(ctx context.Context, symbol string, limit int) ([]Tick, error) {
 	if limit <= 0 || limit > 5000 {
 		limit = 500

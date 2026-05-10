@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { rand } from "@/lib/chart-data";
+import type { ApiFPBar } from "@/lib/api";
 import { useCanvasPanZoom } from "./useCanvasPanZoom";
 
 // Range Footprint Delta Volume
@@ -88,7 +89,15 @@ function genVolProfile(bars: RFBar[], pMin: number, pMax: number): VolBar[] {
   return out;
 }
 
-export default function RangeFPChart({ seed = 1, basePrice = 5564 }: { seed?: number; basePrice?: number }) {
+export default function RangeFPChart({
+  seed = 1,
+  basePrice = 5564,
+  live: _live,
+}: {
+  seed?: number;
+  basePrice?: number;
+  live?: ApiFPBar[];
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { containerRef, size, winStart, winEnd, isGrabbing } = useCanvasPanZoom(60, 16);
   const [showGrid, setShowGrid] = useState(true);

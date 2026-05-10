@@ -59,9 +59,10 @@ func (h *Handlers) Candles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	to := time.Now().UTC()
+	hasFrom := q.Get("from") != ""
 	from := to.Add(-24 * time.Hour)
-	if v := q.Get("from"); v != "" {
-		t, err := parseTimeArg(v)
+	if hasFrom {
+		t, err := parseTimeArg(q.Get("from"))
 		if err != nil {
 			httputil.WriteError(w, http.StatusBadRequest, "invalid from")
 			return
@@ -80,12 +81,23 @@ func (h *Handlers) Candles(w http.ResponseWriter, r *http.Request) {
 	// plan-based history clamp
 	limits := h.limitsFor(r.Context())
 	earliest := to.Add(-time.Duration(limits.HistoryDays) * 24 * time.Hour)
-	if from.Before(earliest) {
+	if hasFrom && from.Before(earliest) {
 		from = earliest
 	}
 
 	limit, _ := strconv.Atoi(q.Get("limit"))
-	candles, err := h.repo.Candles(r.Context(), symbol, tf, from, to, limit)
+
+	// Tail mode (no explicit `from`) returns the *most recent* `limit` bars,
+	// skipping weekend gaps naturally. Range mode requires an explicit from.
+	var (
+		candles []Candle
+		err     error
+	)
+	if hasFrom {
+		candles, err = h.repo.Candles(r.Context(), symbol, tf, from, to, limit)
+	} else {
+		candles, err = h.repo.CandlesTail(r.Context(), symbol, tf, to, limit)
+	}
 	if err != nil {
 		httputil.WriteError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -30,7 +30,11 @@ func (h *SignalsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 	buf, err := h.rdb.Get(r.Context(), "signals:"+sym).Bytes()
 	if errors.Is(err, redis.Nil) {
-		httputil.WriteError(w, http.StatusNotFound, "no signal cached for "+sym)
+		// 200 + JSON null when no cache exists (e.g. weekend / market closed).
+		// Avoids 404-spam in browser DevTools when the client polls signals
+		// every couple of seconds and the ingest engine has nothing to publish.
+		w.Header().Set("Cache-Control", "no-store")
+		httputil.WriteJSON(w, http.StatusOK, nil)
 		return
 	}
 	if err != nil {

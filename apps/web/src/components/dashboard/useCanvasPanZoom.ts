@@ -49,6 +49,19 @@ export function useCanvasPanZoom(total: number, defaultVisible: number) {
     return () => obs.disconnect();
   }, []);
 
+  // Reset window when `total` changes (e.g. mock 50 bars → live 30 bars).
+  // Without this, winStart/winEnd stay stale and the slice goes empty.
+  useEffect(() => {
+    if (total <= 0) return;
+    const newE = total - 1;
+    const newS = Math.max(0, newE - defaultVisible);
+    curS.current = newS; curE.current = newE;
+    tgtS.current = newS; tgtE.current = newE;
+    setWinStart(newS);
+    setWinEnd(newE);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [total]);
+
   // Wheel — vertical = zoom, horizontal = pan
   useEffect(() => {
     const el = containerRef.current;

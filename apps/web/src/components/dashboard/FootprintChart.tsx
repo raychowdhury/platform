@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { rand } from "@/lib/chart-data";
+import type { ApiFPBar } from "@/lib/api";
 import { useCanvasPanZoom } from "./useCanvasPanZoom";
 
 const TICK = 0.25;
@@ -70,11 +71,53 @@ function genDOM(price: number, seed: number, n = 22): DOMRow[] {
   return rows.sort((a, b) => b.price - a.price);
 }
 
-export default function FootprintChart({ seed = 1, basePrice = 4262 }: { seed?: number; basePrice?: number }) {
+export default function FootprintChart({
+  seed = 1,
+  basePrice = 4262,
+  live,
+}: {
+  seed?: number;
+  basePrice?: number;
+  live?: ApiFPBar[];
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { containerRef, size, winStart, winEnd, isGrabbing } = useCanvasPanZoom(50, 14);
 
-  const cands = useMemo(() => genFP(50, basePrice, seed), [seed, basePrice]);
+  // Convert API footprint bars → internal FPCandle shape (with POC and
+  // imbalance flags computed per-bar). Falls back to the seed-based mock
+  // generator when no live data is provided.
+  const cands = useMemo<FPCandle[]>(() => {
+    if (!live || live.length === 0) return genFP(50, basePrice, seed);
+    return live.map((b, i) => {
+      const levels: FPLevel[] = b.levels.map((lv) => ({
+        price: lv.price,
+        ask: lv.buy_volume,
+        bid: lv.sell_volume,
+        poc: false,
+        imbalBuy: lv.buy_volume > lv.sell_volume * IMBAL,
+        imbalSell: lv.sell_volume > lv.buy_volume * IMBAL,
+      }));
+      // Mark POC by max total volume per bar.
+      let pocIdx = 0, pocVol = -1;
+      for (let li = 0; li < levels.length; li++) {
+        const v = levels[li].ask + levels[li].bid;
+        if (v > pocVol) { pocVol = v; pocIdx = li; }
+      }
+      if (levels[pocIdx]) levels[pocIdx].poc = true;
+      return {
+        o: b.open, h: b.high, l: b.low, c: b.close,
+        ts: i,
+        levels,
+        delta: b.delta,
+        volume: b.volume,
+        vps: 0,
+      };
+    });
+  }, [live, basePrice, seed]);
+
+  // Pan/zoom window must be sized to the actual cands array, not a hardcoded
+  // 50, otherwise live data with fewer bars yields out-of-range slice
+  // indices and a blank canvas.
+  const { containerRef, size, winStart, winEnd, isGrabbing } = useCanvasPanZoom(cands.length, Math.min(14, cands.length));
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -82,7 +125,12 @@ export default function FootprintChart({ seed = 1, basePrice = 4262 }: { seed?: 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const visibleCands = cands.slice(winStart, winEnd + 1);
+    // Clamp range to current cands length — useCanvasPanZoom's winStart/End
+    // are stale across total changes (e.g. mock 50 → live 30).
+    const sClamp = Math.max(0, Math.min(winStart, cands.length - 1));
+    const eClamp = Math.max(sClamp, Math.min(winEnd, cands.length - 1));
+    const visibleCands = cands.slice(sClamp, eClamp + 1);
+    if (visibleCands.length === 0) return;
     const lastC = visibleCands[visibleCands.length - 1];
     const dom   = genDOM(lastC.c, seed);
 
