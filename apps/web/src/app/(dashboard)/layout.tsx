@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { DashboardLayout } from "@/components/dashboard/Layout";
 
@@ -26,9 +27,15 @@ const PAGE_LABELS: Record<string, string> = {
 export default function DashboardGroupLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const section = PAGE_LABELS[pathname] ?? "Overview";
+  // SSR-skip the entire dashboard subtree. Most pages use locale formatters
+  // (toLocaleString), Recharts (window dim), and canvas charts that all
+  // diverge between server-rendered HTML and client first paint, tripping
+  // React #418. Cleaner to let the client own the whole tree.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   return (
     <DashboardLayout breadcrumb={[{ label: "Workspace" }, { label: section }]}>
-      {children}
+      {mounted ? children : null}
     </DashboardLayout>
   );
 }

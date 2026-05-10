@@ -157,11 +157,19 @@ func New(d Deps) http.Handler {
 	wsGW := market.NewWSGateway(d.Redis, d.Log, issuer)
 
 	signalsH := market.NewSignalsHandler(d.Redis)
+	ladderH := market.NewLadderHandler(d.DB, d.Redis)
+	footprintH := market.NewFootprintHandler(d.DB)
+	cvdH := market.NewCVDHandler(d.DB)
+	tpoH := market.NewTPOHandler(d.DB)
 	r.Route("/v1/market", func(r chi.Router) {
 		r.Get("/symbols", mktH.ListSymbols)
 		r.Get("/candles", mktH.Candles)
 		r.Get("/ticks", mktH.RecentTicks)
 		r.Get("/signals/{symbol}", signalsH.Get)
+		r.Get("/ladder/{symbol}", ladderH.Get)
+		r.Get("/footprint/{symbol}", footprintH.Get)
+		r.Get("/cvd/{symbol}", cvdH.Get)
+		r.Get("/tpo/{symbol}", tpoH.Get)
 	})
 
 	r.Get("/v1/stream", wsGW.Handle)

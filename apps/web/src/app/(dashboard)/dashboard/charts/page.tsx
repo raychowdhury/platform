@@ -2,6 +2,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { genCandles, rand } from "@/lib/chart-data";
+import { useCandles } from "@/lib/useCandles";
+import { useOrderBook } from "@/lib/useOrderBook";
+import { useFootprint, useCvd, useTpo } from "@/lib/useMarketStreams";
 import {
   Bar, BarChart, ComposedChart, Line, ResponsiveContainer,
   XAxis, YAxis, Tooltip as ChartTooltip, CartesianGrid, AreaChart, Area, ReferenceLine, ReferenceArea, Cell
@@ -71,6 +74,7 @@ const CHART_TYPES: { id: ChartType; label: string; short: string }[] = [
 ];
 
 const SYMBOLS = [
+  { sym: "ESM6",    name: "E-mini S&P 500 Jun 2026",  type: "Futures", exchange: "CME",    price: 7377,     ch:  0     },
   { sym: "AAPL",    name: "Apple Inc.",               type: "Equity",  exchange: "NASDAQ", price: 184.40,   ch:  0.18  },
   { sym: "MSFT",    name: "Microsoft Corp.",           type: "Equity",  exchange: "NASDAQ", price: 415.32,   ch:  0.42  },
   { sym: "NVDA",    name: "NVIDIA Corp.",              type: "Equity",  exchange: "NASDAQ", price: 1128.34,  ch:  3.22  },
@@ -337,16 +341,24 @@ function ChartPanel({
   isActive,
   compact,
   onActivate,
+  onSymbolChange,
 }: {
   panelId: string;
   defaultSymIdx?: number;
   isActive: boolean;
   compact: boolean;
   onActivate: () => void;
+  onSymbolChange?: (sym: string) => void;
 }) {
   const [tf, setTf]               = useState("15m");
   const [chartType, setChartType] = useState<ChartType>("candles");
   const [symbol, setSymbol]       = useState(SYMBOLS[defaultSymIdx % SYMBOLS.length]);
+
+  // Notify parent whenever this panel's symbol changes (and on first mount
+  // when active) so the OB aside can follow the active panel's symbol.
+  useEffect(() => {
+    if (isActive) onSymbolChange?.(symbol.sym);
+  }, [isActive, symbol.sym, onSymbolChange]);
   const [showPicker, setShowPicker] = useState(false);
   const [symSearch, setSymSearch]   = useState("");
   const [starred, setStarred]       = useState(false);
@@ -356,9 +368,25 @@ function ChartPanel({
     () => new Set(["MA(20)", "MA(50)", "MA(200)"])
   );
 
-  const data      = useMemo(() => genCandles(tf.length + 9, 90), [tf]);
-  const last      = data[data.length - 1];
-  const change    = ((last.c - data[0].o) / data[0].o) * 100;
+  // Real candles via API; fall back to deterministic mock when the symbol
+  // is not wired to the backend (or the API hasn't responded yet).
+  const live = useCandles(symbol.sym, tf, 200);
+  const data = useMemo(() => {
+    if (live.data && live.data.length > 0) return live.data;
+    return genCandles(tf.length + 9, 90);
+  }, [live.data, tf]);
+
+  // Live order-flow streams are fetched per active chart type — no point
+  // polling footprint when user is on plain candles, etc. The hooks
+  // tolerate symbols without backend coverage by returning `data: null`.
+  const fpLive  = useFootprint(symbol.sym, tf, 50);
+  const cvdLive = useCvd(symbol.sym, tf, 200);
+  const tpoLive = useTpo(symbol.sym);
+  // Defensive: data is always 90+ via the genCandles fallback, but a future
+  // refactor or empty-API edge case must not crash the whole chart panel.
+  const last      = data[data.length - 1] ?? { c: 0, o: 0, h: 0, l: 0, body: [0, 0] as [number, number], wick: [0, 0] as [number, number], up: true, vol: 0, i: 0 };
+  const firstO    = data[0]?.o ?? 0;
+  const change    = firstO !== 0 ? ((last.c - firstO) / firstO) * 100 : 0;
 
   const enrichedData = useMemo(() => {
     const ma20  = calcSMA(data, 20);
@@ -370,10 +398,14 @@ function ChartPanel({
     const rsiV  = calcRSI(data, 14);
     const macdV = calcMACD(data);
     const tfMs  = TF_MS[tf] ?? 900_000;
-    const baseTs = Date.now() - (data.length - 1) * tfMs;
+    // Hydration-safe baseTs: prefer the API-provided ts on the first bar,
+    // else fall back to a fixed origin so SSR matches client (Date.now()
+    // would diverge → React error #418).
+    const firstTs = (data[0] as { ts?: number } | undefined)?.ts ?? 0;
+    const baseTs = firstTs;
     return data.map((d, idx) => ({
       ...d,
-      ts:    baseTs + idx * tfMs,
+      ts:    (d as { ts?: number }).ts ?? baseTs + idx * tfMs,
       ma20:  ma20[idx],  ma50:  ma50[idx],  ma200: ma200[idx], ema21: ema21[idx],
       ...bb[idx],
       vwap:  vwap[idx],
@@ -522,15 +554,17 @@ function ChartPanel({
   const isZoomed    = winStart !== 0 || winEnd !== TOTAL - 1;
   const visibleData = enrichedData.slice(winStart, winEnd + 1);
 
-  // X axis date formatter
+  // X axis date formatter — UTC components only so the SSR-rendered SVG
+  // text matches the client's first paint (local-time getters would yield
+  // different output on different timezones → React #418 hydration error).
   const tfMs = TF_MS[tf] ?? 900_000;
   const formatXLabel = (ts: number) => {
     if (!ts) return "";
     const d = new Date(ts);
-    const mm  = String(d.getMonth() + 1).padStart(2, "0");
-    const dd  = String(d.getDate()).padStart(2, "0");
-    const hh  = String(d.getHours()).padStart(2, "0");
-    const min = String(d.getMinutes()).padStart(2, "0");
+    const mm  = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const dd  = String(d.getUTCDate()).padStart(2, "0");
+    const hh  = String(d.getUTCHours()).padStart(2, "0");
+    const min = String(d.getUTCMinutes()).padStart(2, "0");
     return tfMs >= 86_400_000 ? `${mm}/${dd}` : tfMs >= 3_600_000 ? `${mm}/${dd} ${hh}:${min}` : `${hh}:${min}`;
   };
   const fmtPrice = (v: number) => v >= 1000 ? v.toFixed(0) : v.toFixed(2);
@@ -538,11 +572,11 @@ function ChartPanel({
   const formatXLabelFull = (ts: number) => {
     if (!ts) return "";
     const d = new Date(ts);
-    const yyyy = d.getFullYear();
-    const mm  = String(d.getMonth() + 1).padStart(2, "0");
-    const dd  = String(d.getDate()).padStart(2, "0");
-    const hh  = String(d.getHours()).padStart(2, "0");
-    const min = String(d.getMinutes()).padStart(2, "0");
+    const yyyy = d.getUTCFullYear();
+    const mm  = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const dd  = String(d.getUTCDate()).padStart(2, "0");
+    const hh  = String(d.getUTCHours()).padStart(2, "0");
+    const min = String(d.getUTCMinutes()).padStart(2, "0");
     return tfMs >= 86_400_000 ? `${yyyy}/${mm}/${dd}` : `${yyyy}/${mm}/${dd} ${hh}:${min}`;
   };
 
@@ -713,13 +747,13 @@ function ChartPanel({
           {isCanvasChart ? (
             <div className="flex-1 min-h-0">
               {chartType === "bookmap"   && <BookmapChart  candles={enrichedData} seed={defaultSymIdx * 7 + 3} />}
-              {chartType === "footprint" && <FootprintChart basePrice={Math.round(data[0]?.o ?? 4262)} seed={defaultSymIdx * 5 + 1} />}
-              {chartType === "orderflow" && <OrderflowChart basePrice={Math.round(data[0]?.o ?? 5710)} seed={defaultSymIdx * 9 + 2} />}
-              {chartType === "rangefp"   && <RangeFPChart   basePrice={Math.round(data[0]?.o ?? 5564)} seed={defaultSymIdx * 11 + 4} />}
-              {chartType === "tpo"       && <TPOChart        basePrice={Math.round(data[0]?.o ?? 5700)} seed={defaultSymIdx * 13 + 6} />}
-              {chartType === "esrth"     && <ESRTHChart           basePrice={Math.round(data[0]?.o ?? 4187)} seed={defaultSymIdx * 17 + 8} />}
-              {chartType === "fpdelta"   && <FootprintDeltaChart  basePrice={70500}                          seed={defaultSymIdx * 19 + 5} />}
-              {chartType === "kiss"      && <KISSOrderFlowChart   basePrice={6020}                           seed={defaultSymIdx * 23 + 7} />}
+              {chartType === "footprint" && <FootprintChart       basePrice={Math.round(data[0]?.o ?? 4262)} seed={defaultSymIdx * 5 + 1}  live={fpLive.data ?? undefined} />}
+              {chartType === "orderflow" && <OrderflowChart       basePrice={Math.round(data[0]?.o ?? 5710)} seed={defaultSymIdx * 9 + 2}  live={fpLive.data ?? undefined} />}
+              {chartType === "rangefp"   && <RangeFPChart         basePrice={Math.round(data[0]?.o ?? 5564)} seed={defaultSymIdx * 11 + 4} live={fpLive.data ?? undefined} />}
+              {chartType === "tpo"       && <TPOChart             basePrice={Math.round(data[0]?.o ?? 5700)} seed={defaultSymIdx * 13 + 6} live={tpoLive.data ?? undefined} />}
+              {chartType === "esrth"     && <ESRTHChart           basePrice={Math.round(data[0]?.o ?? 4187)} seed={defaultSymIdx * 17 + 8} live={fpLive.data ?? undefined} />}
+              {chartType === "fpdelta"   && <FootprintDeltaChart  basePrice={Math.round(data[0]?.o ?? 70500)} seed={defaultSymIdx * 19 + 5} live={fpLive.data ?? undefined} />}
+              {chartType === "kiss"      && <KISSOrderFlowChart   basePrice={Math.round(data[0]?.o ?? 6020)} seed={defaultSymIdx * 23 + 7} live={cvdLive.data ?? undefined} />}
             </div>
           ) : isDepth ? (
             <div className="flex-1 min-h-0 p-4 flex flex-col gap-3">
@@ -750,7 +784,7 @@ function ChartPanel({
                     <YAxis tick={{ fontSize: 10, fill: "var(--chart-axis)" }} axisLine={false} tickLine={false} width={40} />
                     <ChartTooltip
                       contentStyle={{ background: "var(--tooltip-bg)", border: "1px solid var(--tooltip-border)", fontSize: 11, color: "var(--foreground)" }}
-                      formatter={(val: number, name: string) => [val > 0 ? val.toFixed(3) : null, name === "bid" ? "Bid size" : "Ask size"]}
+                      formatter={(val: number, name: string) => [val > 0 ? val.toFixed(0) : null, name === "bid" ? "Bid size" : "Ask size"]}
                       labelFormatter={v => `Price ${v}`}
                     />
                     <Area type="step" dataKey="bid" stroke="var(--bull)" fill={`url(#bid-${panelId})`} strokeWidth={1.5} />
@@ -1009,11 +1043,20 @@ function ChartPanel({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ChartsPage() {
+  // Skip SSR for the entire chart workspace — too many sub-trees use locale
+  // formatters / canvas / window APIs that diverge from server output and
+  // trip React #418. Render placeholder on first paint, swap to live tree
+  // after mount. Cheap fix that's also more honest: charts are useless until
+  // the polling hooks below have fired anyway.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
   const [layout, setLayout]           = useState<Layout>("1x1");
   const [activePanel, setActivePanel] = useState(0);
+  const [activeSymbol, setActiveSymbol] = useState<string>("ESM6");
   const [bookCollapsed, setBookCollapsed] = useState(false);
   const [bookView, setBookView]           = useState<"both" | "buy" | "sell">("both");
-  const [priceGap, setPriceGap]           = useState("0.01");
+  const [priceGap, setPriceGap]           = useState("0.25");
   const [showGapPicker, setShowGapPicker] = useState(false);
   const [snapped, setSnapped]           = useState(false);
   const [chartSaved, setChartSaved]     = useState(false);
@@ -1024,32 +1067,44 @@ export default function ChartsPage() {
   const [orderPlaced, setOrderPlaced]   = useState(false);
   const router = useRouter();
 
-  const book = useMemo(() => genBook(3), []);
-  const last = useMemo(() => genBook(3).bids[0], []);
+  // Real-time order book from /v1/market/{ladder,signals}. Live L1 only on
+  // active sessions; weekend/closed renders the rolling volume profile.
+  const ob = useOrderBook(activeSymbol, 1440);
 
-  const PRICE_GAPS = ["0.01", "0.05", "0.10", "0.25", "0.50", "1.00"];
+  const PRICE_GAPS = ["0.05", "0.10", "0.25", "0.50", "1.00", "5.00"];
+
+  // Bid rows = real-tape rows priced at or below best_bid; ask rows = at or
+  // above best_ask. When the L1 quote isn't available (closed market) we
+  // split rows around the median price so both sides still render.
+  const ladderRows = ob.ladder?.rows ?? [];
+  const bestBid = ob.signal?.best_bid ?? ob.ladder?.best_bid ?? 0;
+  const bestAsk = ob.signal?.best_ask ?? ob.ladder?.best_ask ?? 0;
 
   const aggBids = useMemo(() => {
-    const gap = parseFloat(priceGap);
+    const gap = parseFloat(priceGap) || 0.25;
     const m = new Map<number, { p: number; s: number }>();
-    book.bids.forEach(b => {
-      const key = Math.floor(b.p / gap) * gap;
+    for (const r of ladderRows) {
+      if (bestBid > 0 && r.price > bestBid) continue;
+      const key = Math.floor(r.price / gap) * gap;
       const e = m.get(key);
-      if (e) e.s += b.s; else m.set(key, { p: key, s: b.s });
-    });
-    return [...m.values()].sort((a, b) => b.p - a.p);
-  }, [book, priceGap]);
+      const sz = r.volume;
+      if (e) e.s += sz; else m.set(key, { p: key, s: sz });
+    }
+    return [...m.values()].sort((a, b) => b.p - a.p).slice(0, 14);
+  }, [ladderRows, bestBid, priceGap]);
 
   const aggAsks = useMemo(() => {
-    const gap = parseFloat(priceGap);
+    const gap = parseFloat(priceGap) || 0.25;
     const m = new Map<number, { p: number; s: number }>();
-    book.asks.forEach(a => {
-      const key = Math.ceil(a.p / gap) * gap;
+    for (const r of ladderRows) {
+      if (bestAsk > 0 && r.price < bestAsk) continue;
+      const key = Math.ceil(r.price / gap) * gap;
       const e = m.get(key);
-      if (e) e.s += a.s; else m.set(key, { p: key, s: a.s });
-    });
-    return [...m.values()].sort((a, b) => a.p - b.p);
-  }, [book, priceGap]);
+      const sz = r.volume;
+      if (e) e.s += sz; else m.set(key, { p: key, s: sz });
+    }
+    return [...m.values()].sort((a, b) => a.p - b.p).slice(0, 14);
+  }, [ladderRows, bestAsk, priceGap]);
 
   const snap = () => { setSnapped(true); setTimeout(() => setSnapped(false), 1500); };
   const saveChart = () => { setChartSaved(true); setTimeout(() => setChartSaved(false), 1500); };
@@ -1075,6 +1130,19 @@ export default function ChartsPage() {
     height: layout === "2x2" ? "640px" : layout === "2v" || layout === "2h" ? "600px" : "100%",
     gridTemplateRows: layout === "2x2" || layout === "2v" ? "1fr 1fr" : "1fr",
   };
+
+  // SSR placeholder — must match the post-mount root container so the
+  // hydration boundary has consistent markup. Real workspace renders after.
+  if (!mounted) {
+    return (
+      <div className="contents">
+        <div className="glass p-3 flex items-center justify-between gap-3 flex-wrap">
+          <span className="text-[11px] text-muted-foreground">loading workspace…</span>
+        </div>
+        <div className="glass" style={{ height: 680 }} />
+      </div>
+    );
+  }
 
   return (
     <div className={maximized ? "fixed inset-0 z-[100] bg-background overflow-auto flex flex-col gap-5 p-5" : "contents"}>
@@ -1104,7 +1172,7 @@ export default function ChartsPage() {
       </div>
 
       {/* ── Chart + Order book grid ── */}
-      <div className={`grid grid-cols-1 gap-5 xl:transition-[grid-template-columns] xl:duration-300 xl:ease-in-out xl:h-[680px] ${bookCollapsed ? "xl:grid-cols-[1fr_36px]" : "xl:grid-cols-[1fr_280px]"}`}>
+      <div className={`grid grid-cols-1 gap-5 xl:transition-[grid-template-columns] xl:duration-300 xl:ease-in-out xl:h-[680px] ${bookCollapsed ? "xl:grid-cols-[1fr_36px]" : "xl:grid-cols-[1fr_360px]"}`}>
         {/* Chart workspace */}
         <section className="glass p-0 flex flex-col order-1 overflow-hidden xl:h-full">
           <div className={`${gridClass[layout]} overflow-hidden`} style={gridStyle}>
@@ -1116,6 +1184,7 @@ export default function ChartsPage() {
                 isActive={activePanel === i}
                 compact={compact}
                 onActivate={() => setActivePanel(i)}
+                onSymbolChange={setActiveSymbol}
               />
             ))}
           </div>
@@ -1213,32 +1282,37 @@ export default function ChartsPage() {
             </div>
 
             {/* Column headers */}
-            <div className="grid grid-cols-3 px-4 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground border-b hairline shrink-0">
+            <div className="grid grid-cols-[1fr_1fr] px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground border-b hairline shrink-0">
               <span>Price</span>
               <span className="text-right">Size</span>
-              <span className="text-right">Total</span>
             </div>
 
             {/* Asks (sell side) */}
             {bookView !== "buy" && (
               <div className="flex-1 min-h-0 flex flex-col overflow-y-auto">
-                {aggAsks.slice().reverse().map((a, i) => (
-                  <div key={i} className="relative grid grid-cols-3 px-4 py-1 text-[11px] font-mono">
-                    <div className="absolute inset-y-0 right-0 bg-bear/10" style={{ width: `${Math.min(a.s * 18, 95)}%` }} />
-                    <span className="relative text-bear">{a.p.toFixed(2)}</span>
-                    <span className="relative text-right">{a.s.toFixed(3)}</span>
-                    <span className="relative text-right text-muted-foreground">{(a.p * a.s).toFixed(0)}</span>
-                  </div>
-                ))}
+                {aggAsks.slice().reverse().map((a, i) => {
+                  const maxS = Math.max(...aggBids.map(x => x.s), ...aggAsks.map(x => x.s), 1);
+                  return (
+                    <div key={i} className="relative grid grid-cols-[1fr_1fr] px-4 py-1.5 text-[14px] font-mono leading-tight">
+                      <div className="absolute inset-y-0 right-0 bg-bear/10" style={{ width: `${Math.min((a.s / maxS) * 95, 95)}%` }} />
+                      <span className="relative text-bear">{a.p.toFixed(2)}</span>
+                      <span className="relative text-right">{a.s.toLocaleString()}</span>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
             {/* Spread */}
             {bookView === "both" && (
-              <div className="px-4 py-2 border-y hairline flex items-center justify-between shrink-0">
-                <span className="font-display text-lg text-bull">{aggBids[0]?.p.toFixed(2) ?? "—"}</span>
-                <span className="text-[10px] text-muted-foreground font-mono">
-                  spread {((aggAsks[0]?.p ?? 0) - (aggBids[0]?.p ?? 0)).toFixed(2)}
+              <div className="px-4 py-3 border-y hairline flex items-center justify-between shrink-0">
+                <span className="font-display text-2xl text-bull font-semibold">{(bestBid || aggBids[0]?.p)?.toFixed(2) ?? "—"}</span>
+                <span className="text-[11px] text-muted-foreground font-mono">
+                  {ob.signal
+                    ? `spread ${(bestAsk - bestBid).toFixed(2)}`
+                    : ob.loading
+                      ? "loading…"
+                      : `${ob.ladder?.window_mins ?? 0}m vol-profile`}
                 </span>
               </div>
             )}
@@ -1246,14 +1320,16 @@ export default function ChartsPage() {
             {/* Bids (buy side) */}
             {bookView !== "sell" && (
               <div className="flex-1 min-h-0 flex flex-col overflow-y-auto">
-                {aggBids.map((b, i) => (
-                  <div key={i} className="relative grid grid-cols-3 px-4 py-1 text-[11px] font-mono">
-                    <div className="absolute inset-y-0 right-0 bg-bull/10" style={{ width: `${Math.min(b.s * 18, 95)}%` }} />
+                {aggBids.map((b, i) => {
+                  const maxS = Math.max(...aggBids.map(x => x.s), ...aggAsks.map(x => x.s), 1);
+                  return (
+                  <div key={i} className="relative grid grid-cols-[1fr_1fr] px-4 py-1.5 text-[14px] font-mono leading-tight">
+                    <div className="absolute inset-y-0 right-0 bg-bull/10" style={{ width: `${Math.min((b.s / maxS) * 95, 95)}%` }} />
                     <span className="relative text-bull">{b.p.toFixed(2)}</span>
-                    <span className="relative text-right">{b.s.toFixed(3)}</span>
-                    <span className="relative text-right text-muted-foreground">{(b.p * b.s).toFixed(0)}</span>
+                    <span className="relative text-right">{b.s.toLocaleString()}</span>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
             <div className="p-3 border-t hairline flex flex-col gap-2 mt-auto shrink-0">

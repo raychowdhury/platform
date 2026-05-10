@@ -158,23 +158,52 @@ func fetchOhlcv1m(apiKey, dataset, symbol string, start, end time.Time) ([]ohlcv
 	return out, nil
 }
 
-// writeSyntheticTicks explodes each OHLCV bar into 4 ticks (open/high/low/close
-// at :00/:15/:30/:45 of the minute) with full bar volume on the close. The
-// continuous aggregate then reconstructs the bar from those points.
+// writeSyntheticTicks explodes each OHLCV bar into synthetic ticks so the
+// continuous aggregate can reconstruct it. The close-bucket volume is split
+// between buy-aggressor and sell-aggressor sides via the tick rule:
+//   close > open → 60% buy / 40% sell (uptick bias)
+//   close < open → 40% buy / 60% sell (downtick bias)
+//   close = open → 50 / 50
+// This makes the footprint chart show meaningful buy|sell columns instead
+// of a single side hardcoded as "buy". Existing ticks in the same time
+// range are deleted first so re-running backfill replaces them cleanly.
 func writeSyntheticTicks(ctx context.Context, db *pgxpool.Pool, symbol string, bars []ohlcvBar) (int, error) {
 	if len(bars) == 0 {
 		return 0, nil
 	}
-	rows := make([][]any, 0, len(bars)*4)
-	for i, b := range bars {
-		baseID := int64(b.Time.Unix()) * 4
+	first := bars[0].Time
+	last := bars[len(bars)-1].Time.Add(time.Minute)
+	if _, err := db.Exec(ctx,
+		`DELETE FROM ticks WHERE symbol = $1 AND time >= $2 AND time < $3`,
+		symbol, first, last,
+	); err != nil {
+		return 0, fmt.Errorf("clear range: %w", err)
+	}
+
+	rows := make([][]any, 0, len(bars)*5)
+	for _, b := range bars {
+		baseID := int64(b.Time.Unix()) * 8
+		var buyShare float64
+		switch {
+		case b.Close > b.Open:
+			buyShare = 0.6
+		case b.Close < b.Open:
+			buyShare = 0.4
+		default:
+			buyShare = 0.5
+		}
+		buyVol := float64(b.Volume) * buyShare
+		sellVol := float64(b.Volume) - buyVol
 		rows = append(rows,
+			// O/H/L scaffold ticks (qty=0) so the OHLC continuous aggregate
+			// can reconstruct the candle. Side doesn't matter at qty=0.
 			[]any{b.Time.Add(0 * time.Second), symbol, baseID + 0, b.Open, 0.0, false},
 			[]any{b.Time.Add(15 * time.Second), symbol, baseID + 1, b.High, 0.0, false},
 			[]any{b.Time.Add(30 * time.Second), symbol, baseID + 2, b.Low, 0.0, false},
-			[]any{b.Time.Add(45 * time.Second), symbol, baseID + 3, b.Close, float64(b.Volume), false},
+			// Two close-bucket trades carry the volume split.
+			[]any{b.Time.Add(45 * time.Second), symbol, baseID + 3, b.Close, buyVol, false}, // buy aggressor
+			[]any{b.Time.Add(50 * time.Second), symbol, baseID + 4, b.Close, sellVol, true}, // sell aggressor
 		)
-		_ = i
 	}
 	n, err := db.CopyFrom(ctx,
 		pgx.Identifier{"ticks"},

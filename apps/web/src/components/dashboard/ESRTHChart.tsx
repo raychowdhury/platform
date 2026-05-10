@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { rand } from "@/lib/chart-data";
+import type { ApiFPBar } from "@/lib/api";
 import { useCanvasPanZoom } from "./useCanvasPanZoom";
 
 // ES RTH Footprint with Volume Profile and DOM
@@ -134,7 +135,15 @@ function genKeyLevels(bars: ESBar[], seed: number) {
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function ESRTHChart({ seed = 1, basePrice = 4187 }: { seed?: number; basePrice?: number }) {
+export default function ESRTHChart({
+  seed = 1,
+  basePrice = 4187,
+  live: _live,
+}: {
+  seed?: number;
+  basePrice?: number;
+  live?: ApiFPBar[];
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { containerRef, size, winStart, winEnd, isGrabbing } = useCanvasPanZoom(60, 18);
 
