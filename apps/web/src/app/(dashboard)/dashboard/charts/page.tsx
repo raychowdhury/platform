@@ -355,6 +355,7 @@ function ChartPanel({
   const [tf, setTf]               = useState("15m");
   const [chartType, setChartType] = useState<ChartType>("candles");
   const [symbol, setSymbol]       = useState(SYMBOLS[defaultSymIdx % SYMBOLS.length]);
+  const [showGrid, setShowGrid]   = useState(true);
 
   // Notify parent whenever this panel's symbol changes (and on first mount
   // when active) so the OB aside can follow the active panel's symbol.
@@ -703,6 +704,14 @@ function ChartPanel({
             </button>
           ))}
           <span className="w-px h-4 bg-white/10 mx-1" />
+          <button
+            onClick={() => setShowGrid(g => !g)}
+            title={showGrid ? "Hide grid" : "Show grid"}
+            className={`p-1.5 border hairline transition-colors ${showGrid ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-white/[0.04]"}`}
+          >
+            <Grid2x2 className="w-3 h-3" strokeWidth={1.6} />
+          </button>
+          <span className="w-px h-4 bg-white/10 mx-1" />
           <ChartTypeDropdown value={chartType} onChange={setChartType} />
           {isZoomed && (
             <button onClick={resetZoom}
@@ -786,7 +795,7 @@ function ChartPanel({
                         <stop offset="100%" stopColor="var(--bear)" stopOpacity={0.05} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
+                    {showGrid && <CartesianGrid stroke="var(--chart-grid)" vertical={false} />}
                     <XAxis dataKey="price" tick={{ fontSize: 10, fill: "var(--chart-axis)" }} axisLine={false} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: "var(--chart-axis)" }} axisLine={false} tickLine={false} width={40} />
                     <ChartTooltip
@@ -825,7 +834,7 @@ function ChartPanel({
                   {chartType === "candles" ? (
                     <ComposedChart data={visibleData} margin={{ top: 8, right: 50, left: 0, bottom: 0 }}
                       onMouseMove={handleChartMove} onMouseLeave={() => setCrosshair(null)}>
-                      <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
+                      {showGrid && <CartesianGrid stroke="var(--chart-grid)" vertical={false} />}
                       <XAxis dataKey="ts" hide tickFormatter={formatXLabel} />
                       <YAxis orientation="right" tickFormatter={fmtPrice} tick={{ fontSize: 10, fill: "var(--chart-axis)" }} domain={["dataMin - 30", "dataMax + 30"]} axisLine={false} tickLine={false} width={50} />
                       <ChartTooltip cursor={{ stroke: "var(--chart-cursor)", strokeDasharray: 3 }}
@@ -854,7 +863,7 @@ function ChartPanel({
                   ) : chartType === "line" ? (
                     <ComposedChart data={visibleData} margin={{ top: 8, right: 50, left: 0, bottom: 0 }}
                       onMouseMove={handleChartMove} onMouseLeave={() => setCrosshair(null)}>
-                      <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
+                      {showGrid && <CartesianGrid stroke="var(--chart-grid)" vertical={false} />}
                       <XAxis dataKey="ts" hide tickFormatter={formatXLabel} />
                       <YAxis orientation="right" tickFormatter={fmtPrice} tick={{ fontSize: 10, fill: "var(--chart-axis)" }} axisLine={false} tickLine={false} width={50} />
                       <ChartTooltip contentStyle={{ background: "var(--tooltip-bg)", border: "1px solid var(--tooltip-border)", fontSize: 11, color: "var(--foreground)" }} labelFormatter={() => ""} />
@@ -876,7 +885,7 @@ function ChartPanel({
                           <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
+                      {showGrid && <CartesianGrid stroke="var(--chart-grid)" vertical={false} />}
                       <XAxis dataKey="ts" hide tickFormatter={formatXLabel} />
                       <YAxis orientation="right" tickFormatter={fmtPrice} tick={{ fontSize: 10, fill: "var(--chart-axis)" }} axisLine={false} tickLine={false} width={50} />
                       <ChartTooltip contentStyle={{ background: "var(--tooltip-bg)", border: "1px solid var(--tooltip-border)", fontSize: 11, color: "var(--foreground)" }} labelFormatter={() => ""} />
@@ -986,7 +995,7 @@ function ChartPanel({
                     <div className="h-16">
                       <ResponsiveContainer width="100%" height="100%">
                         <ComposedChart data={visibleData}>
-                          <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
+                          {showGrid && <CartesianGrid stroke="var(--chart-grid)" vertical={false} />}
                           <YAxis hide domain={[0, 100]} />
                           <ReferenceLine y={70} stroke="color-mix(in oklab, var(--bear) 40%, transparent)" strokeDasharray="2 2" />
                           <ReferenceLine y={30} stroke="color-mix(in oklab, var(--bull) 40%, transparent)" strokeDasharray="2 2" />
@@ -1013,7 +1022,7 @@ function ChartPanel({
                     <div className="h-16">
                       <ResponsiveContainer width="100%" height="100%">
                         <ComposedChart data={visibleData}>
-                          <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
+                          {showGrid && <CartesianGrid stroke="var(--chart-grid)" vertical={false} />}
                           <YAxis hide />
                           <ReferenceLine y={0} stroke="rgba(255,255,255,0.1)" />
                           <Bar dataKey="macdHist">
