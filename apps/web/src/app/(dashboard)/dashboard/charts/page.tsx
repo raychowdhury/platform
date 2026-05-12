@@ -14,7 +14,9 @@ import {
   LineChart, BarChart3, Activity, Layers, Save, Camera, Share2, Bell,
   ChevronDown, ChevronRight, ChevronLeft, Grid2x2,
 } from "lucide-react";
-import BookmapChart         from "@/components/dashboard/BookmapChart";
+import BookmapHeatmapChart  from "@/components/dashboard/BookmapHeatmapChart";
+import BookmapDOMChart      from "@/components/dashboard/BookmapDOMChart";
+import OrderFlowLadderPanel from "@/components/charts/OrderFlowLadderPanel";
 import FootprintChart        from "@/components/dashboard/FootprintChart";
 import OrderflowChart        from "@/components/dashboard/OrderflowChart";
 import RangeFPChart          from "@/components/dashboard/RangeFPChart";
@@ -746,7 +748,12 @@ function ChartPanel({
           {/* ── Canvas chart views ── */}
           {isCanvasChart ? (
             <div className="flex-1 min-h-0">
-              {chartType === "bookmap"   && <BookmapChart  candles={enrichedData} seed={defaultSymIdx * 7 + 3} />}
+              {chartType === "bookmap"   && (
+                <div className="h-full w-full grid" style={{ gridTemplateColumns: "1fr 420px" }}>
+                  <BookmapHeatmapChart symbol={symbol.sym} tf={tf.toLowerCase()} limit={120} tick={0.25} showRail={false} />
+                  <BookmapDOMChart symbol={symbol.sym} tick={0.25} />
+                </div>
+              )}
               {chartType === "footprint" && <FootprintChart       basePrice={Math.round(data[0]?.o ?? 4262)} seed={defaultSymIdx * 5 + 1}  live={fpLive.data ?? undefined} />}
               {chartType === "orderflow" && <OrderflowChart       basePrice={Math.round(data[0]?.o ?? 5710)} seed={defaultSymIdx * 9 + 2}  live={fpLive.data ?? undefined} />}
               {chartType === "rangefp"   && <RangeFPChart         basePrice={Math.round(data[0]?.o ?? 5564)} seed={defaultSymIdx * 11 + 4} live={fpLive.data ?? undefined} />}
@@ -1062,9 +1069,8 @@ export default function ChartsPage() {
   const [chartSaved, setChartSaved]     = useState(false);
   const [shared, setShared]             = useState(false);
   const [maximized, setMaximized]       = useState(false);
-  const [orderSide, setOrderSide]       = useState<"Buy" | "Sell" | null>(null);
-  const [orderAmount, setOrderAmount]   = useState("");
-  const [orderPlaced, setOrderPlaced]   = useState(false);
+  // Trade-form state removed — BOOK panel is analytics-only. Quick-trade
+  // buttons live on a separate trading view; no order execution from charts.
   const router = useRouter();
 
   // Real-time order book from /v1/market/{ladder,signals}. Live L1 only on
@@ -1077,8 +1083,22 @@ export default function ChartsPage() {
   // above best_ask. When the L1 quote isn't available (closed market) we
   // split rows around the median price so both sides still render.
   const ladderRows = ob.ladder?.rows ?? [];
-  const bestBid = ob.signal?.best_bid ?? ob.ladder?.best_bid ?? 0;
-  const bestAsk = ob.signal?.best_ask ?? ob.ladder?.best_ask ?? 0;
+  // Use the live L1 mid when available; otherwise fall back to the highest-
+  // volume row (POC) so the closed-market OB doesn't degenerate to "top 14
+  // highest prices" + "top 14 lowest prices" with a 200-tick gap between.
+  const liveBid = ob.signal?.best_bid ?? ob.ladder?.best_bid ?? 0;
+  const liveAsk = ob.signal?.best_ask ?? ob.ladder?.best_ask ?? 0;
+  const proxyMid = useMemo(() => {
+    if (liveBid > 0 && liveAsk > 0) return (liveBid + liveAsk) / 2;
+    if (ladderRows.length === 0) return 0;
+    let pocPrice = ladderRows[0].price, pocVol = -1;
+    for (const r of ladderRows) {
+      if (r.volume > pocVol) { pocVol = r.volume; pocPrice = r.price; }
+    }
+    return pocPrice;
+  }, [liveBid, liveAsk, ladderRows]);
+  const bestBid = liveBid > 0 ? liveBid : proxyMid;
+  const bestAsk = liveAsk > 0 ? liveAsk : proxyMid;
 
   const aggBids = useMemo(() => {
     const gap = parseFloat(priceGap) || 0.25;
@@ -1109,13 +1129,6 @@ export default function ChartsPage() {
   const snap = () => { setSnapped(true); setTimeout(() => setSnapped(false), 1500); };
   const saveChart = () => { setChartSaved(true); setTimeout(() => setChartSaved(false), 1500); };
   const share = () => { setShared(true); setTimeout(() => setShared(false), 1500); };
-  const placeOrder = () => {
-    if (!orderAmount) return;
-    setOrderPlaced(true);
-    setOrderSide(null);
-    setOrderAmount("");
-    setTimeout(() => setOrderPlaced(false), 2000);
-  };
 
   const panelCount = PANEL_COUNT[layout];
   const compact    = layout !== "1x1";
@@ -1172,9 +1185,9 @@ export default function ChartsPage() {
       </div>
 
       {/* ── Chart + Order book grid ── */}
-      <div className={`grid grid-cols-1 gap-5 xl:transition-[grid-template-columns] xl:duration-300 xl:ease-in-out xl:h-[680px] ${bookCollapsed ? "xl:grid-cols-[1fr_36px]" : "xl:grid-cols-[1fr_360px]"}`}>
+      <div className={`grid grid-cols-1 gap-5 xl:transition-[grid-template-columns] xl:duration-300 xl:ease-in-out xl:h-[680px] min-w-0 ${bookCollapsed ? "xl:grid-cols-[minmax(0,1fr)_42px]" : "xl:grid-cols-[minmax(0,1fr)_340px]"}`}>
         {/* Chart workspace */}
-        <section className="glass p-0 flex flex-col order-1 overflow-hidden xl:h-full">
+        <section className="glass p-0 flex flex-col order-1 overflow-hidden xl:h-full min-w-0">
           <div className={`${gridClass[layout]} overflow-hidden`} style={gridStyle}>
             {Array.from({ length: panelCount }, (_, i) => (
               <ChartPanel
@@ -1206,146 +1219,20 @@ export default function ChartsPage() {
 
           {/* Expanded content — fades in when expanded */}
           <div className={`flex flex-col h-full transition-opacity duration-200 ${bookCollapsed ? "opacity-0 pointer-events-none" : "opacity-100"}`}>
-            {/* Title row */}
-            <div className="px-4 py-3 border-b hairline flex items-center justify-between shrink-0">
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Order Book</span>
+            {/* Slim collapse strip */}
+            <div className="flex items-center justify-end px-2 py-1 border-b border-white/[0.06] shrink-0">
               <button onClick={() => setBookCollapsed(true)} title="Collapse" className="text-muted-foreground hover:text-foreground transition-colors">
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
             </div>
 
-            {/* View mode + gap row */}
-            <div className="px-3 py-2 border-b hairline flex items-center justify-between shrink-0">
-              {/* View mode icons */}
-              <div className="flex items-center gap-1">
-                {/* Both */}
-                <button onClick={() => setBookView("both")} title="Both sides"
-                  className={`p-1.5 transition-colors ${bookView === "both" ? "opacity-100" : "opacity-40 hover:opacity-70"}`}>
-                  <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none">
-                    <rect x="2" y="1.5" width="11" height="1.8" rx="0.5" fill="var(--bear)" />
-                    <rect x="2" y="4"   width="8"  height="1.8" rx="0.5" fill="var(--bear)" />
-                    <rect x="2" y="6.5" width="10" height="1.8" rx="0.5" fill="var(--bear)" />
-                    <rect x="2" y="9.5" width="10" height="1.8" rx="0.5" fill="var(--bull)" />
-                    <rect x="2" y="12"  width="8"  height="1.8" rx="0.5" fill="var(--bull)" />
-                    <rect x="2" y="14.5" width="6" height="1.8" rx="0.5" fill="var(--bull)" />
-                  </svg>
-                </button>
-                {/* Buy only */}
-                <button onClick={() => setBookView("buy")} title="Buy side only"
-                  className={`p-1.5 transition-colors ${bookView === "buy" ? "opacity-100" : "opacity-40 hover:opacity-70"}`}>
-                  <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none">
-                    <rect x="2" y="1.5" width="11" height="1.8" rx="0.5" fill="rgba(100,100,110,0.5)" />
-                    <rect x="2" y="4"   width="8"  height="1.8" rx="0.5" fill="rgba(100,100,110,0.5)" />
-                    <rect x="2" y="6.5" width="10" height="1.8" rx="0.5" fill="rgba(100,100,110,0.5)" />
-                    <rect x="2" y="9.5" width="10" height="1.8" rx="0.5" fill="var(--bull)" />
-                    <rect x="2" y="12"  width="8"  height="1.8" rx="0.5" fill="var(--bull)" />
-                    <rect x="2" y="14.5" width="6" height="1.8" rx="0.5" fill="var(--bull)" />
-                  </svg>
-                </button>
-                {/* Sell only */}
-                <button onClick={() => setBookView("sell")} title="Sell side only"
-                  className={`p-1.5 transition-colors ${bookView === "sell" ? "opacity-100" : "opacity-40 hover:opacity-70"}`}>
-                  <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none">
-                    <rect x="2" y="1.5" width="11" height="1.8" rx="0.5" fill="var(--bear)" />
-                    <rect x="2" y="4"   width="8"  height="1.8" rx="0.5" fill="var(--bear)" />
-                    <rect x="2" y="6.5" width="10" height="1.8" rx="0.5" fill="var(--bear)" />
-                    <rect x="2" y="9.5" width="10" height="1.8" rx="0.5" fill="rgba(100,100,110,0.5)" />
-                    <rect x="2" y="12"  width="8"  height="1.8" rx="0.5" fill="rgba(100,100,110,0.5)" />
-                    <rect x="2" y="14.5" width="6" height="1.8" rx="0.5" fill="rgba(100,100,110,0.5)" />
-                  </svg>
-                </button>
-              </div>
-
-              {/* Price gap dropdown */}
-              <div className="relative">
-                {showGapPicker && (
-                  <div className="fixed inset-0 z-40" onClick={() => setShowGapPicker(false)} />
-                )}
-                <button
-                  onClick={() => setShowGapPicker(v => !v)}
-                  className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground hover:text-foreground border hairline px-2 py-1 transition-colors"
-                >
-                  {priceGap}
-                  <ChevronDown className={`w-3 h-3 transition-transform ${showGapPicker ? "rotate-180" : ""}`} />
-                </button>
-                {showGapPicker && (
-                  <div className="absolute right-0 top-full mt-1 z-50 bg-[var(--sidebar)] border hairline shadow-xl flex flex-col min-w-[80px]">
-                    {PRICE_GAPS.map(g => (
-                      <button key={g} onClick={() => { setPriceGap(g); setShowGapPicker(false); }}
-                        className={`px-3 py-1.5 text-[11px] font-mono text-left hover:bg-white/[0.06] transition-colors ${priceGap === g ? "text-accent" : "text-muted-foreground"}`}>
-                        {g}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+            {/* New OrderFlowLadderPanel — replaces legacy Price/Size/view-mode
+                block. Reuses /v1/market/{ladder,signals} via useOrderBook;
+                no signal/threshold/backend changes. */}
+            <div className="flex-1 min-h-0">
+              <OrderFlowLadderPanel symbol={activeSymbol} tick={0.25} />
             </div>
 
-            {/* Column headers */}
-            <div className="grid grid-cols-[1fr_1fr] px-4 py-2 text-[11px] uppercase tracking-wider text-muted-foreground border-b hairline shrink-0">
-              <span>Price</span>
-              <span className="text-right">Size</span>
-            </div>
-
-            {/* Asks (sell side) */}
-            {bookView !== "buy" && (
-              <div className="flex-1 min-h-0 flex flex-col overflow-y-auto">
-                {aggAsks.slice().reverse().map((a, i) => {
-                  const maxS = Math.max(...aggBids.map(x => x.s), ...aggAsks.map(x => x.s), 1);
-                  return (
-                    <div key={i} className="relative grid grid-cols-[1fr_1fr] px-4 py-1.5 text-[14px] font-mono leading-tight">
-                      <div className="absolute inset-y-0 right-0 bg-bear/10" style={{ width: `${Math.min((a.s / maxS) * 95, 95)}%` }} />
-                      <span className="relative text-bear">{a.p.toFixed(2)}</span>
-                      <span className="relative text-right">{a.s.toLocaleString()}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Spread */}
-            {bookView === "both" && (
-              <div className="px-4 py-3 border-y hairline flex items-center justify-between shrink-0">
-                <span className="font-display text-2xl text-bull font-semibold">{(bestBid || aggBids[0]?.p)?.toFixed(2) ?? "—"}</span>
-                <span className="text-[11px] text-muted-foreground font-mono">
-                  {ob.signal
-                    ? `spread ${(bestAsk - bestBid).toFixed(2)}`
-                    : ob.loading
-                      ? "loading…"
-                      : `${ob.ladder?.window_mins ?? 0}m vol-profile`}
-                </span>
-              </div>
-            )}
-
-            {/* Bids (buy side) */}
-            {bookView !== "sell" && (
-              <div className="flex-1 min-h-0 flex flex-col overflow-y-auto">
-                {aggBids.map((b, i) => {
-                  const maxS = Math.max(...aggBids.map(x => x.s), ...aggAsks.map(x => x.s), 1);
-                  return (
-                  <div key={i} className="relative grid grid-cols-[1fr_1fr] px-4 py-1.5 text-[14px] font-mono leading-tight">
-                    <div className="absolute inset-y-0 right-0 bg-bull/10" style={{ width: `${Math.min((b.s / maxS) * 95, 95)}%` }} />
-                    <span className="relative text-bull">{b.p.toFixed(2)}</span>
-                    <span className="relative text-right">{b.s.toLocaleString()}</span>
-                  </div>
-                  );
-                })}
-              </div>
-            )}
-            <div className="p-3 border-t hairline flex flex-col gap-2 mt-auto shrink-0">
-              <div className="grid grid-cols-2 gap-1 text-[11px]">
-                <button onClick={() => setOrderSide("Buy")} className={`py-2 font-medium transition-colors ${orderSide === "Buy" ? "bg-bull/40 border border-bull text-bull" : "bg-bull/15 border border-bull/30 text-bull hover:bg-bull/25"}`}>Buy</button>
-                <button onClick={() => setOrderSide("Sell")} className={`py-2 font-medium transition-colors ${orderSide === "Sell" ? "bg-bear/40 border border-bear text-bear" : "bg-bear/15 border border-bear/30 text-bear hover:bg-bear/25"}`}>Sell</button>
-              </div>
-              <input value={orderAmount} onChange={e => setOrderAmount(e.target.value)} placeholder="Amount" className="w-full bg-white/[0.03] border hairline px-2 py-1.5 text-[11px] font-mono focus:outline-none focus:border-accent/40" />
-              {orderPlaced ? (
-                <div className="text-[11px] py-2 bg-bull/15 border border-bull/30 text-bull text-center font-medium">✓ Order placed</div>
-              ) : (
-                <button onClick={placeOrder} disabled={!orderSide || !orderAmount} className={`text-[11px] py-2 font-medium transition-colors ${orderSide ? "bg-primary text-primary-foreground hover:bg-primary/80" : "bg-white/5 text-muted-foreground cursor-not-allowed"}`}>
-                  {orderSide ? `Place ${orderSide} order` : "Select Buy or Sell"}
-                </button>
-              )}
-            </div>
           </div>
         </aside>
       </div>
